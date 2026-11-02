@@ -1,6 +1,6 @@
 # PostgreSQL Verification Evidence
 
-**Date:** 2026-11-02. All PostgreSQL instances described here were disposable local Docker containers; no production DB or credentials were used.
+**Date:** 2026-11-02. Current independent replay used checkout `9b82f59666398348664944cd04c72921e69594c9`. All PostgreSQL instances described here were disposable Docker containers; no production DB or credentials were used.
 
 ## Environment and commands
 
@@ -21,7 +21,7 @@ docker run --rm --network "$PG_TEST_NETWORK" \
    python manage.py test --verbosity 0'
 ```
 
-**Observed after final employment activation guard:** exit 0; `Ran 378 tests`; `OK`; **0 skipped, 0 failures**. An earlier run exposed one portability defect in `test_backup_restore_command.py` (hard-coded `sqlite` vendor); the assertion was corrected to compare with `connection.vendor`, not weakened, and the final complete PostgreSQL suite passed.
+**Independently observed on current checkout:** exit 0; `Ran 378 tests`; `OK`; **0 skipped, 0 failures**. Focused authorization/lifecycle/invitation/hierarchy/import/ledger/export/attachment/audit/Bradford/job/notification/workflow/site modules also passed: **159 tests, 0 skips, 0 failures**.
 
 SQLite comparison command used the same disposable Python image with `DJANGO_SETTINGS_MODULE=config.settings_test`: exit 0; **378 tests, 14 PostgreSQL-only skips, 0 failures**. SQLite is not used as PostgreSQL evidence.
 
@@ -72,3 +72,23 @@ Observed: insert succeeded; `TRUNCATE TABLE` succeeded; remaining row count was 
 ## Rollback evidence
 
 `AuditCoverageTests.test_audit_failure_rolls_back_business_mutation` verifies an audit-write exception rolls back a Company mutation. `AppendOnlyIntegrityTests.test_rejected_mutation_rolls_back_without_poisoning_outer_transaction` verifies rejected SQL mutation does not poison an outer transaction. Entitlement/workflow/import tests verify ledger, request, audit and import rollback boundaries. These passed in both full suites.
+
+## Independent Current-Checkout Replay
+
+On 2026-11-02, a fresh PostgreSQL 17.11 database applied all current migrations, including `leave.0020_notificationdelivery`; `migrate --check` and `makemigrations --check --dry-run` exited 0. `entity_id` was confirmed as `character varying(64)`. The full suite then passed with 378 tests and no skips. All databases were disposable and contained no production data.
+
+The production cache table is not created by Django migrations or repository deployment assets. On the freshly migrated database:
+
+```sql
+SELECT to_regclass('public.zsh_cache');
+```
+
+returned `NULL`. With `DJANGO_SETTINGS_MODULE=config.settings_prod`, a GET to `/api/v1/health/` returned 500 because DRF throttling queried the missing `zsh_cache` relation. After running `DJANGO_SETTINGS_MODULE=config.settings_prod python manage.py createcachetable zsh_cache`, 20 requests returned 200 and request 21 returned 429. This verifies the configured throttle works once provisioned, while exposing a required deployment step absent from the migration/deployment path.
+
+Exact provisioning and request-loop commands, run from `backend/` with production settings and dummy environment values against the disposable DB:
+
+```sh
+DJANGO_SETTINGS_MODULE=config.settings_prod python manage.py createcachetable zsh_cache
+DJANGO_SETTINGS_MODULE=config.settings_prod python manage.py shell -c \
+  'from django.test import Client; c=Client(raise_request_exception=False); statuses=[c.get("/api/v1/health/", secure=True, HTTP_HOST="localhost").status_code for _ in range(21)]; print(statuses); assert statuses[:20] == [200]*20 and statuses[20] == 429'
+```

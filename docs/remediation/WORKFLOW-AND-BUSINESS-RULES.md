@@ -2,7 +2,7 @@
 
 ## وضعیت مستقل فعلی — ۲ نوامبر ۲۰۲۶
 
-بخش چرخه استخدام پایین‌تر snapshot قبل از P18 است. `authorization_context()` اکنون `is_employed_on()` را برای پروفایل کارمند اعمال می‌کند؛ direct-service approval توسط manager منقضی رد می‌شود و session موجود پس از end date در درخواست بعدی 401 می‌گیرد و offboard می‌شود. Regressionهای این رفتار در `test_authorized_services.py` و `test_invitations.py` روی full suite اجرا شدند. ابطال proactive نشست‌ها وجود ندارد؛ جزئیات در [گزارش نهایی Backend](./BACKEND-FINAL-AUDIT.md).
+`authorization_context()` اکنون `is_employed_on()` را برای پروفایل کارمند اعمال می‌کند؛ direct-service approval توسط manager منقضی رد می‌شود و session موجود پس از end date در درخواست بعدی 401 می‌گیرد و offboard می‌شود. Regressionهای این رفتار در `test_authorized_services.py` و `test_invitations.py` روی full SQLite و PostgreSQL suite اجرا شدند. ابطال proactive نشست‌ها وجود ندارد؛ جزئیات در [گزارش نهایی Backend](./BACKEND-FINAL-AUDIT.md).
 
 ## وضعیت‌های دیده‌شده در کد
 
@@ -32,15 +32,13 @@ Frontend واقعی از قبل برای `recordAbsence` هدر `Idempotency-Key
 
 تابع دامنه Bradford در `zsh_core/reports.py` فرمول `S² × D` را با روزهای تقویمی پیاده می‌کند. مسیر گزارش اکنون به سرویس دامنه متصل است، پیش از aggregation به HR scope محدود می‌شود، انواع محرمانه را حذف می‌کند و صفحه‌بندی صریح دارد. تنظیمات باید صریحاً ذخیره و فعال شده باشند؛ داده جزئیِ فاقد جزئیات روزانه امتیاز نمی‌گیرد. چون انتخاب روز تقویمی در برابر روزکاری، تعطیلات، پاره‌وقت و انواع واجد شرایط هنوز تصویب نشده، پاسخ با وضعیت `provisional` است و تکمیل سیاست محسوب نمی‌شود. شرح API و پرسش‌های باقی‌مانده در [سیاست Bradford](../bradford-policy-fa.md) آمده است.
 
-## چرخه استخدام و خاتمه همکاری — سیاست هدف و وضعیت فعلی
+## چرخه استخدام و خاتمه همکاری — وضعیت جاری
 
-**وضعیت اجرا: BLOCKED / NOT VERIFIED.** این بخش سیاست هدف را ثبت می‌کند و ادعای رفتار پیاده‌شده نیست.
+**وضعیت:** FIXED AND VERIFIED برای authorization براساس تاریخ مؤثر اشتغال و رد session در درخواست بعدی؛ NOT FULLY VERIFIED برای چرخه کامل استخدام، rehire و policy درخواست‌های باز.
 
-- `EmployeeProfile.start_date` آغاز اشتغال است؛ شروع در آینده نباید دسترسی employee/manager بدهد.
-- سیاست هدف: `EmployeeProfile.end_date` روز پایانی اشتغال و **شامل همان روز** است؛ اشتغال جاری وقتی `start_date <= local_date` و (`end_date` خالی یا `local_date <= end_date`) برقرار است. `local_date` باید از `django.utils.timezone.localdate()` و timezone پیکربندی‌شده گرفته شود، نه `date.today()`.
-- `EmployeeProfile.is_employee` شناسه نوع پروفایل است و به‌تنهایی وضعیت اشتغال مؤثر نیست. `User.is_active` غیرفعال‌سازی حساب است و به‌تنهایی نباید اشتغال منقضی را پنهان کند.
-- `ContractPeriod` شرایط قرارداد را نگه می‌دارد و فعلاً از آن به‌عنوان وضعیت استخدام استفاده نمی‌شود. فیلدهای تعلیق/خاتمه صریح در مدل‌های بررسی‌شده وجود ندارند.
-- rehire باید با دوره جدید و مجاز انجام شود و تاریخ/حسابرسی دوره قبلی را بازنویسی نکند. سرویس/مدل دوره‌های اشتغال و فرآیند مجاز rehire هنوز در backend موجود نیست.
-- سیاست درخواست‌های باز یا pending هنگام offboarding تعیین/اجرا نشده است؛ نباید بدون تصمیم محصول خودکار رد یا حذف شوند. رکوردهای تاریخی باید حفظ شوند.
-- احراز هویت فعلی Django database session است؛ refresh token و API token در پیکربندی/routeهای بررسی‌شده یافت نشدند. غیرفعال‌کردن مؤثر دسترسی در هر درخواست با بررسی وضعیت مرکزی ممکن است، ولی ابطال فوری sessionهای قبلی در حال حاضر سرویس مشخصی ندارد.
-- probe امنیتی نشان داد profile منقضی با `User.is_active=True` هنوز نقش employee و manager می‌گیرد و می‌تواند درخواست pending را تصمیم‌گیری کند. پس تا اتصال قاعده بالا به authorization مرکزی، self-service، approval و گزارش‌ها نباید فاز lifecycle را رفع‌شده دانست.
+- `EmployeeProfile.start_date` و `end_date` به‌صورت inclusive در `is_employed_on()` بررسی می‌شوند؛ تاریخ مؤثر از timezone سازمانی و `timezone.localdate()` گرفته می‌شود.
+- `authorization_context()` برای پروفایل منقضی یا account غیر فعال‌شده نقش employee/manager نمی‌سازد. Regression manager منقضی، کارمند فعال‌نشده و session موجود پس از end date در `test_authorized_services.py` و `test_invitations.py` روی full PostgreSQL suite پاس شدند.
+- درخواست بعد از انقضای اشتغال رد می‌شود و مسیر account access، کاربر را در درخواست بعدی offboard می‌کند؛ session-version یا ابطال پیش‌دستانه وجود ندارد.
+- تعلیق و offboarding صریح با `account_status` وجود دارد، اما مدل/سرویس دوره‌های اشتغال مجزا و فرآیند rehire با حفظ تاریخچه در scope این remediation تأیید نشد.
+- سیاست درخواست‌های باز یا pending هنگام offboarding هنوز نیازمند تصمیم مالک کسب‌وکار است؛ نباید بدون تصمیم، آن‌ها را خودکار رد یا حذف کرد.
+- `ContractPeriod` شرایط قرارداد را نگه می‌دارد و منبع اصلی اشتغال مؤثر نیست. این را نباید با وضعیت authorization اشتباه گرفت.

@@ -2,7 +2,7 @@
 
 ## تکمیل ممیزی مستقل — ۲ نوامبر ۲۰۲۶
 
-ماتریس پایین‌تر محدود به فازهای اولیه است. Audit نهایی، HR scope union، global LeaveType، IDOR، lifecycle، activation، exports، notification confidentiality و PostgreSQL row triggers را دوباره با suite کامل بررسی کرد. Employment authorization اکنون در `authorization_context` نیز کنترل می‌شود. PostgreSQL `TRUNCATE` همچنان bypass تأییدشده است و Gate 6 **NOT VERIFIED** باقی می‌ماند؛ جزئیات در [SECURITY-VERIFICATION.md](./SECURITY-VERIFICATION.md) است.
+ماتریس پایین‌تر محدود به فازهای اولیه است. Audit نهایی روی checkout `9b82f59666398348664944cd04c72921e69594c9`، HR scope، global LeaveType، IDOR، lifecycle، activation، exports، notification confidentiality و PostgreSQL row triggers را با suite کامل بررسی کرد. Employment authorization در `authorization_context` کنترل می‌شود. HR-only عملیات selector مستقل دارد، اما probe نشان داد request list/export برای کاربر دو‌نقشی HR+manager دسترسی manager را خارج از HR assignment نگه می‌دارد؛ Gate 1 تا تعیین policy و test آن مسیر **NOT VERIFIED** است. PostgreSQL `TRUNCATE` همچنان bypass تأییدشده است و Gate 6 **NOT VERIFIED** باقی می‌ماند؛ جزئیات در [SECURITY-VERIFICATION.md](./SECURITY-VERIFICATION.md) است.
 
 ## اصل اجرای مجوز
 
@@ -28,12 +28,12 @@ Backend مرجع مجوز است. `authorization_context` نقش‌ها را ا�
 - privacy group-size موجود همچنان برای گروه‌های کوچک اعمال می‌شود.
 - `LeaveType` taxonomy سراسری و بدون اتصال به شرکت است. scoped HR فقط انواع فعال را برای کار HR می‌خواند و مجوز نوشتن ندارد؛ employee/manager فقط انواع فعال و قابل درخواست را می‌خوانند؛ admin global همه انواع را می‌خواند. `leave_type.global.manage` مختص admin سراسری/superuser است.
 - ایجاد/ویرایش/غیرفعال‌سازی LeaveType از API و سرویس ادمین هر دو نیازمند permission و دلیل‌اند؛ AuditEvent append-only ثبت actor، before/after، دلیل، timestamp و `X-Correlation-ID` اختیاری را ذخیره می‌کند. حذف، bulk mutation و import برای LeaveType route پشتیبانی‌شده ندارند.
-- route گزارش export در `leave/urls.py` وجود ندارد؛ serializerهای CSV/XLSX به‌تنهایی endpoint داده نیستند.
+- routeهای CSV/XLSX export در حال حاضر وجود دارند و در [ممیزی نهایی Backend](./BACKEND-FINAL-AUDIT.md) و آزمون‌های `test_exports` بررسی شده‌اند؛ این خلاف گزارش snapshot اولیه است.
 
 ## دامنه و چرخه حساب
 
-کد RoleAssignment از scopeهای global/company/site/department/employee پشتیبانی می‌کند؛ برای HR، grant جهانی مجاز نیست. تطبیق scopeهای site/department و lifecycle استخدامی در فازهای بعدی باید سرتاسری آزموده شود. ورود، خروج نشست، `/auth/me` و تغییر گذرواژه وجود دارند؛ invitation/activation، قطع نشست‌های موجود در زمان offboarding و refresh/API token در این فاز بررسی نشده‌اند.
+کد RoleAssignment از scopeهای global/company/site/department/employee پشتیبانی می‌کند؛ برای HR، grant جهانی مجاز نیست. scopeهای hierarchy و lifecycle با آزمون‌های جاری بررسی شده‌اند؛ session منقضی در درخواست بعدی رد می‌شود، اما ابطال پیش‌دستانهٔ نشست یا refresh/API token پیاده‌سازی نشده است. invitation/activation در آزمون‌های جاری پوشش دارد؛ این برخلاف snapshot اولیه است.
 
 ## حسابرسی
 
-فاز ۲ یک LeaveRequestEvent و AuditEvent یکتا برای ثبت HR را آزموده و atomic بودن rollback را بررسی می‌کند. حفاظت append-only در سطح ORM/DB برای همه مدل‌های حساس، bulk operation و retention در این فاز ممیزی نشده است؛ به معنی تأیید کامل audit design نیست.
+ثبت HR یک LeaveRequestEvent و AuditEvent یکتا و rollback اتمیک دارد. ORM و triggerهای PostgreSQL برای UPDATE/DELETE آزموده‌اند؛ TRUNCATE و کنترل privilege/role production شکاف باز هستند، بنابراین append-only کلی تأیید نمی‌شود.

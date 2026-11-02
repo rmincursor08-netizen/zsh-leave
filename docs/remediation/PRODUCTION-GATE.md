@@ -2,9 +2,11 @@
 
 ## نتیجه ممیزی مستقل — ۲ نوامبر ۲۰۲۶
 
-جدول قبلی پایین‌تر وضعیت snapshot زمان فازهای قبلی است و از نظر PostgreSQL، lifecycle، notification و backup به‌روز نیست. نتایج فعلی در [ممیزی نهایی Backend](./BACKEND-FINAL-AUDIT.md) و گزارش‌های امنیت، PostgreSQL و عملیات آمده‌اند. وضعیت gateها اکنون: A Authorization **PASS** برای مسیرهای آزموده‌شده؛ B Confidentiality **PASS** برای endpoint/exportهای دارای regression؛ C Workflow **PASS**؛ D Employment lifecycle **PASS** با session denial در درخواست بعدی؛ E Activation **PASS**؛ F Data integrity **PASS**؛ G PostgreSQL **PASS** روی PostgreSQL 17.11 آزمایشی؛ H Frontend خارج از scope؛ I Jobs **NOT VERIFIED در deployment**؛ J Deployment/operations **NOT VERIFIED**؛ Audit **NOT VERIFIED کلی** به علت TRUNCATE/role grants؛ Attachments **NOT VERIFIED در محیط production**. نتیجهٔ کلی همچنان **NOT READY FOR PRODUCTION** است.
+وضعیت جاری checkout در commit `9b82f59666398348664944cd04c72921e69594c9` ثبت شده است. Gate 1 Authorization/scope و Gate 2 Confidentiality **NOT VERIFIED** طبق معیار این audit؛ Gate 3 lifecycle، Gate 4 activation و Gate 5 data integrity **PASS** در آزمون‌های ثبت‌شده؛ Gate 6 audit **NOT VERIFIED** به علت TRUNCATE و role grants؛ Gate 7 PostgreSQL **PASS** روی PostgreSQL 17.11 آزمایشی؛ Gate 8 jobs، Gate 9 attachments و Gate 10 operations **NOT VERIFIED** در deployment. جدول‌های تاریخی پایین‌تر snapshotهای قبلی‌اند و نتیجهٔ جاری نیستند. یافتهٔ جدید عملیات: دیتابیس تازه بدون جدول `zsh_cache` به API خطای 500 می‌دهد تا cache table دستی provision شود. نتیجهٔ کلی **NOT READY FOR PRODUCTION** است.
 
-هیچ gate کلی با این تغییرات PASS اعلام نمی‌شود. نتیجه هر مورد براساس شواهد همین فازها است.
+## Snapshotهای تاریخی — منسوخ
+
+هیچ gate کلی با این تغییرات PASS اعلام نمی‌شود. نتیجه‌های جدول زیر متعلق به snapshot قبلی و پیش از آزمون PostgreSQL/lifecycle جاری است؛ برای تصمیم فعلی از گزارش نهایی Backend استفاده کنید.
 
 | Gate | وضعیت | شاهد/مانع |
 |---|---|---|
