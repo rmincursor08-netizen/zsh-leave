@@ -159,7 +159,7 @@ def calendar_events(request):
     if scope == "org":
         if not has_permission(context, READ_COMPANY_CALENDAR):
             return _failure("permission_denied", "دسترسی تقویم سازمانی مجاز نیست", 403)
-        requests = scoped_hr_leave_requests(context).filter(
+        requests = scoped_leave_requests(context).filter(
             status="APPROVED",
         )
     elif scope == "team":

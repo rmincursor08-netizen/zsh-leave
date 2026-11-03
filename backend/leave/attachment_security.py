@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import json
+import os
+import signal
+import subprocess
+import tempfile
 import unicodedata
 import warnings
 
@@ -30,12 +35,24 @@ class AttachmentScannerUnavailable(RuntimeError):
     pass
 
 
+class AttachmentScanFailed(RuntimeError):
+    CODES = {
+        "scanner_timeout",
+        "scanner_process_failed",
+        "scanner_invalid_response",
+        "stored_file_invalid",
+    }
+
+    def __init__(self, code: str):
+        self.code = code if code in self.CODES else "scanner_process_failed"
+        super().__init__(self.code)
+
+
 @dataclass(frozen=True)
 class ValidatedAttachment:
     filename: str
     content_type: str
     content: bytes
-    scan_status: str
 
 
 def normalize_attachment_filename(filename: str) -> str:
@@ -82,22 +99,86 @@ def _validate_image(content: bytes, expected_format: str) -> bool:
         return False
 
 
+def _scan_with_command(content: bytes, command: list[str]) -> str:
+    resource_limiter = getattr(settings, "ZSH_ATTACHMENT_PRLIMIT", "")
+    if not resource_limiter:
+        raise AttachmentScannerUnavailable("resource_limiter_unavailable")
+    timeout = settings.ZSH_ATTACHMENT_SCANNER_TIMEOUT_SECONDS
+    limited_command = [
+        resource_limiter,
+        f"--cpu={timeout}:{timeout + 1}",
+        "--fsize=65536:65536",
+        "--nofile=64:64",
+        "--core=0:0",
+        "--",
+        *command,
+    ]
+    try:
+        with tempfile.TemporaryFile() as output:
+            process = subprocess.Popen(
+                limited_command,
+                stdin=subprocess.PIPE,
+                stdout=output,
+                stderr=subprocess.DEVNULL,
+                cwd="/",
+                env={"PATH": os.defpath, "LANG": "C", "HOME": "/nonexistent"},
+                shell=False,
+                close_fds=True,
+                start_new_session=True,
+            )
+            try:
+                process.communicate(content, timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
+                raise AttachmentScanFailed("scanner_timeout") from exc
+            output.seek(0)
+            result = output.read(64 * 1024 + 1)
+    except FileNotFoundError as exc:
+        raise AttachmentScannerUnavailable("scanner_executable_missing") from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AttachmentScanFailed("scanner_process_failed") from exc
+
+    if process.returncode != 0 or len(result) > 64 * 1024:
+        raise AttachmentScanFailed("scanner_process_failed")
+    try:
+        def reject_duplicate_keys(pairs):
+            response = {}
+            for key, value in pairs:
+                if key in response:
+                    raise ValueError("duplicate key")
+                response[key] = value
+            return response
+
+        response = json.loads(result.decode("utf-8"), object_pairs_hook=reject_duplicate_keys)
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+        raise AttachmentScanFailed("scanner_invalid_response") from exc
+    if response == {"status": "clean"}:
+        return "clean"
+    if response == {"status": "rejected"}:
+        return "rejected"
+    raise AttachmentScanFailed("scanner_invalid_response")
+
+
 def scan_attachment(content: bytes) -> str:
+    command = getattr(settings, "ZSH_ATTACHMENT_SCANNER_COMMAND", [])
+    if command:
+        return _scan_with_command(content, command)
+
     scanner_path = getattr(settings, "ZSH_ATTACHMENT_SCANNER", "")
     if not scanner_path:
-        return "unscanned"
-
+        raise AttachmentScannerUnavailable("scanner_not_configured")
     try:
         scanner = import_string(scanner_path)
+    except (ImportError, AttributeError, ValueError) as exc:
+        raise AttachmentScannerUnavailable("scanner_unavailable") from exc
+    try:
         clean = scanner(content)
     except Exception as exc:
-        raise AttachmentScannerUnavailable from exc
-
+        raise AttachmentScanFailed("scanner_process_failed") from exc
     if not isinstance(clean, bool):
-        raise AttachmentScannerUnavailable("Scanner must return a boolean result.")
-    if not clean:
-        raise InvalidAttachment("The attachment was rejected by the malware scanner.")
-    return "clean"
+        raise AttachmentScanFailed("scanner_invalid_response")
+    return "clean" if clean else "rejected"
 
 
 def validate_attachment(upload) -> ValidatedAttachment:
@@ -132,9 +213,4 @@ def validate_attachment(upload) -> ValidatedAttachment:
     if not valid:
         raise InvalidAttachment("Attachment content is malformed or has an invalid signature.")
 
-    return ValidatedAttachment(
-        filename=filename,
-        content_type=detected_type,
-        content=content,
-        scan_status=scan_attachment(content),
-    )
+    return ValidatedAttachment(filename=filename, content_type=detected_type, content=content)

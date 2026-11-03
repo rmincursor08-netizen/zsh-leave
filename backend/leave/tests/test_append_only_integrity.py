@@ -4,6 +4,7 @@ from unittest import skipUnless
 from django.contrib.auth import get_user_model
 from django.db import DatabaseError, connection, transaction
 from django.test import TestCase
+from leave.management.commands.sync_runtime_db_grants import APPEND_ONLY_TABLES
 
 from leave.entitlement_services import create_entitlement
 from leave.models import (
@@ -12,6 +13,7 @@ from leave.models import (
     Company,
     EntitlementEvent,
     EmployeeProfile,
+    JobEffect,
     LeaveEntitlement,
     LeavePolicyVersion,
     LeaveRequest,
@@ -22,6 +24,17 @@ from leave.models import (
 )
 
 User = get_user_model()
+
+EXPECTED_APPEND_ONLY_TABLES = {
+    AuditEvent._meta.db_table,
+    CalendarHolidayHistory._meta.db_table,
+    EntitlementEvent._meta.db_table,
+    JobEffect._meta.db_table,
+    LeavePolicyVersion._meta.db_table,
+    LeaveRequestComment._meta.db_table,
+    LeaveRequestEvent._meta.db_table,
+    PublicHolidayHistory._meta.db_table,
+}
 
 
 class AppendOnlyIntegrityTests(TestCase):
@@ -85,6 +98,9 @@ class AppendOnlyIntegrityTests(TestCase):
                 entitlement=entitlement, actor=self.actor, kind="opening",
                 before={"base": "0"}, after={"base": "10"}, reason="opening balance",
             ), "reason"),
+            (JobEffect, JobEffect.objects.create(
+                job_name="append-only-test", effect_key="append-only-test-effect",
+            ), "job_name"),
         ]
 
     def test_existing_model_save_and_delete_are_rejected(self):
@@ -119,6 +135,9 @@ class AppendOnlyIntegrityTests(TestCase):
                     with transaction.atomic():
                         model.objects.filter(pk=row.pk).delete()
                 self.assertTrue(model.objects.filter(pk=row.pk).exists())
+
+    def test_runtime_grant_policy_covers_every_append_only_model(self):
+        self.assertSetEqual(APPEND_ONLY_TABLES, EXPECTED_APPEND_ONLY_TABLES)
 
     def test_direct_sql_update_and_delete_are_rejected(self):
         if connection.vendor not in {"postgresql", "sqlite"}:

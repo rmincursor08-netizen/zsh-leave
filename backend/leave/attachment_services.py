@@ -109,7 +109,8 @@ def purge_attachment(
             return attachment
         attachment.deletion_status = LeaveRequestAttachment.DELETION_DELETED
         attachment.deleted_at = now
-        attachment.save(update_fields=["deletion_status", "deleted_at"])
+        attachment.scan_status = LeaveRequestAttachment.SCAN_DELETED
+        attachment.save(update_fields=["deletion_status", "deleted_at", "scan_status"])
         audit_services.record_model_change(
             actor=actor,
             origin="admin",

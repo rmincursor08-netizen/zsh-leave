@@ -11,7 +11,10 @@ from rest_framework.response import Response
 
 from zsh_core import settings_schema, workflow as wf
 from zsh_core.permissions import EMPLOYEE, HR, MANAGER, RequestFacts, Viewer, serialize_request
-from .authorization import HR as HR_ROLE, authorization_context, can_decide_leave_request, scoped_leave_requests
+from .authorization import (
+    HR as HR_ROLE, authorization_context, can_decide_leave_request,
+    can_submit_for_employee, scoped_leave_requests,
+)
 from .calendar_services import CalendarConfigurationError
 from .models import (
     EmployeeProfile,
@@ -171,13 +174,7 @@ def _visible_request(request_id: int, context) -> LeaveRequest:
 
 
 def _submit_permission(context, employee: EmployeeProfile) -> bool:
-    return context.employee_id == employee.pk or context.has_scope(
-        HR_ROLE,
-        company_id=employee.company_id,
-        site_id=employee.site_id,
-        department_id=employee.department_id,
-        employee_id=employee.pk,
-    )
+    return can_submit_for_employee(context, employee)
 
 
 def _event_role(context, req: LeaveRequest) -> str:

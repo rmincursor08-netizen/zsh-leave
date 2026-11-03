@@ -308,6 +308,7 @@ class RoleAssignment(models.Model):
                                    related_name="+")
     revoked_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
                                    on_delete=models.PROTECT, related_name="+")
+    expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -758,11 +759,21 @@ def attachment_upload_path(instance, filename):
 
 
 class LeaveRequestAttachment(models.Model):
-    SCAN_UNSCANNED = "unscanned"
+    SCAN_PENDING = "pending_scan"
+    SCAN_SCANNING = "scanning"
     SCAN_CLEAN = "clean"
+    SCAN_REJECTED = "rejected"
+    SCAN_UNAVAILABLE = "scanner_unavailable"
+    SCAN_FAILED = "scan_failed"
+    SCAN_DELETED = "deleted"
     SCAN_STATUS_CHOICES = [
-        (SCAN_UNSCANNED, "Unscanned"),
+        (SCAN_PENDING, "Pending scan"),
+        (SCAN_SCANNING, "Scanning"),
         (SCAN_CLEAN, "Clean"),
+        (SCAN_REJECTED, "Rejected"),
+        (SCAN_UNAVAILABLE, "Scanner unavailable"),
+        (SCAN_FAILED, "Scan failed"),
+        (SCAN_DELETED, "Deleted"),
     ]
     DELETION_ACTIVE = "active"
     DELETION_PENDING = "pending"
@@ -782,8 +793,12 @@ class LeaveRequestAttachment(models.Model):
     content_type = models.CharField(max_length=100)
     file_size = models.PositiveBigIntegerField()
     scan_status = models.CharField(
-        max_length=16, choices=SCAN_STATUS_CHOICES, default=SCAN_UNSCANNED,
+        max_length=24, choices=SCAN_STATUS_CHOICES, default=SCAN_PENDING,
     )
+    scan_attempts = models.PositiveIntegerField(default=0)
+    scan_started_at = models.DateTimeField(null=True, blank=True)
+    scanned_at = models.DateTimeField(null=True, blank=True)
+    scan_result_code = models.CharField(max_length=32, blank=True)
     deletion_status = models.CharField(
         max_length=16, choices=DELETION_STATUS_CHOICES, default=DELETION_ACTIVE,
     )
@@ -1000,7 +1015,7 @@ class JobExecution(models.Model):
         ]
 
 
-class JobEffect(models.Model):
+class JobEffect(_AppendOnly):
     job_name = models.CharField(max_length=64)
     effect_key = models.CharField(max_length=255, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)

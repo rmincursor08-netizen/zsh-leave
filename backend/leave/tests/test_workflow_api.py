@@ -289,6 +289,15 @@ class LeaveWorkflowApiTests(TestCase):
         self.assertTrue(correction_audit.after["reason_changed"])
         self.assertEqual(LeaveRequestComment.objects.filter(request_id=request_id).count(), 1)
 
+    def test_deactivated_leave_type_cannot_be_selected_for_new_request(self):
+        self.leave_type.enabled = False
+        self.leave_type.save(update_fields=["enabled"])
+
+        response = self.submit(self.employee_client, "submit-disabled-type", "2026-11-04")
+
+        self.assertIn(response.status_code, (400, 422), response.content)
+        self.assertEqual(LeaveRequest.objects.count(), 0)
+
     def test_hr_absence_is_directly_approved_and_idempotent(self):
         counted_leave_type = LeaveType.objects.create(
             key="counted-absence", label_fa="Counted absence", counts_against_balance=True,

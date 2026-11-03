@@ -1,3 +1,4 @@
+import os
 from urllib.parse import urlsplit
 from pathlib import Path
 
@@ -5,6 +6,7 @@ from .settings_base import *  # noqa F401,F403
 
 DEBUG = False
 ZSH_JOB_SCHEDULER_REQUIRED = True
+ZSH_ATTACHMENT_SCANNER_REQUIRED = True
 SECRET_KEY = env("ZSH_SECRET_KEY", required=True)
 if env("ZSH_INVITATION_EXPOSE_DEV_LINKS", "0").lower() in {"1", "true", "yes", "on"}:
     raise RuntimeError("Development invitation links cannot be exposed in production.")
@@ -51,6 +53,18 @@ for origin in CSRF_TRUSTED_ORIGINS:
 if len(SECRET_KEY) < 50:
     raise RuntimeError("ZSH_SECRET_KEY must contain at least 50 characters in production.")
 
+if not ZSH_ATTACHMENT_SCANNER_COMMAND:
+    raise RuntimeError("ZSH_ATTACHMENT_SCANNER_COMMAND must configure production malware scanning.")
+if not Path(ZSH_ATTACHMENT_SCANNER_COMMAND[0]).is_absolute():
+    raise RuntimeError("Production attachment scanner executable must use an absolute path.")
+if (
+    not Path(ZSH_ATTACHMENT_SCANNER_COMMAND[0]).is_file()
+    or not os.access(ZSH_ATTACHMENT_SCANNER_COMMAND[0], os.X_OK)
+):
+    raise RuntimeError("Configured production attachment scanner executable is unavailable.")
+if not ZSH_ATTACHMENT_PRLIMIT:
+    raise RuntimeError("Production attachment scanning requires the prlimit utility.")
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -62,10 +76,12 @@ DATABASES = {
     }
 }
 
-attachment_root = env("ZSH_ATTACHMENT_ROOT", required=True)
-if not Path(attachment_root).is_absolute():
+attachment_root = Path(env("ZSH_ATTACHMENT_ROOT", required=True)).expanduser()
+if not attachment_root.is_absolute():
     raise RuntimeError("ZSH_ATTACHMENT_ROOT must be an absolute private storage path.")
-ZSH_ATTACHMENT_ROOT = Path(attachment_root).expanduser().resolve()
+if attachment_root.is_symlink():
+    raise RuntimeError("ZSH_ATTACHMENT_ROOT cannot be a symbolic link.")
+ZSH_ATTACHMENT_ROOT = attachment_root.resolve()
 try:
     ZSH_ATTACHMENT_ROOT.relative_to(PROJECT_ROOT)
 except ValueError:

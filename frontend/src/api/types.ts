@@ -80,6 +80,7 @@ export type Attachment = {
   fileName: string;
   sizeLabel: string;
   createdAt: string;
+  scanStatus?: "pending_scan" | "scanning" | "clean" | "rejected" | "scanner_unavailable" | "scan_failed" | "deleted";
   downloadUrl?: string;
 };
 
@@ -157,14 +158,66 @@ export type Employee = {
   id: number;
   userId: number;
   displayName: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
   personnelCode: string;
   companyId: number;
   companyName: string;
+  siteId?: number | null;
+  siteName?: string | null;
+  departmentId?: number | null;
   departmentName: string;
+  managerId?: number | null;
   positionName: string;
   managerName: string | null;
   startDate: string;
   endDate: string | null;
+  isActive: boolean;
+  accountStatus?: EmployeeAccountStatus;
+};
+
+export type EmployeeAccountStatus =
+  | "created"
+  | "invitation_pending"
+  | "invitation_sent"
+  | "invitation_expired"
+  | "invitation_revoked"
+  | "account_activated"
+  | "account_suspended"
+  | "account_offboarded";
+
+export type EmployeeOnboardingDraft = {
+  firstName: string;
+  lastName: string;
+  personnelCode: string;
+  email: string;
+  companyId: number;
+  siteId?: number | null;
+  departmentId?: number | null;
+  managerId?: number | null;
+  startDate: string;
+  endDate?: string | null;
+};
+
+export type EmployeeOnboardingResult = Employee & {
+  invitationStatus?: "sent" | "pending";
+  invitationDelivery?: "sent" | "unavailable";
+  invitationMessageFa?: string;
+  developmentActivationUrl?: string;
+};
+
+export type InvitationResult = {
+  status: "sent" | "pending";
+  message_fa: string;
+  developmentActivationUrl?: string;
+};
+
+export type Site = {
+  id: number;
+  companyId: number;
+  code: string;
+  name: string;
   isActive: boolean;
 };
 

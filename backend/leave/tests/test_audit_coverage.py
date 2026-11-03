@@ -227,7 +227,7 @@ class AuditCoverageTests(TestCase):
             3,
         )
         last_event = AuditEvent.objects.get(
-            entity="LeaveType", entity_id=str(leave_type_id), action="leave_type.update",
+            entity="LeaveType", entity_id=str(leave_type_id), action="leave_type.deactivate",
             after__enabled=False,
         )
         self.assertFalse(last_event.after["enabled"])

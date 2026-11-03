@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.db.models import Q, QuerySet
+from django.utils import timezone
 
 from .employment_services import is_employed_on
 from .models import EmployeeProfile, LeaveRequest, RoleAssignment
@@ -22,6 +23,7 @@ READ_WORK_PATTERNS = "work-pattern.read"
 READ_LEAVE_POLICY = "leave-policy.read"
 MANAGE_SYSTEM_CONFIGURATION = "system-configuration.manage"
 MANAGE_ROLE_ASSIGNMENTS = "role-assignment.manage"
+READ_LEAVE_TYPES = "leave_type.read"
 MANAGE_GLOBAL_LEAVE_TYPES = "leave_type.global.manage"
 
 
@@ -84,6 +86,7 @@ def authorization_context(user: Any) -> AuthorizationContext:
 
     assignments = tuple(
         RoleAssignment.objects.filter(user_id=user.pk, is_active=True)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
         .select_related("company", "site", "department", "employee")
         .order_by("pk")
     )
@@ -104,6 +107,8 @@ def has_permission(context: AuthorizationContext, permission: str, *,
         MANAGE_SYSTEM_CONFIGURATION, MANAGE_ROLE_ASSIGNMENTS, MANAGE_GLOBAL_LEAVE_TYPES,
     }:
         return context.has_role(ADMIN)
+    if permission == READ_LEAVE_TYPES:
+        return any(context.has_role(role) for role in {ADMIN, HR, MANAGER, EMPLOYEE})
     if permission == READ_COMPANY_CALENDAR:
         if company_id is not None:
             return context.has_scope(
@@ -187,6 +192,51 @@ def can_view_leave_request(context: AuthorizationContext, leave_request: LeaveRe
     return scoped_leave_requests(context).filter(pk=leave_request.pk).exists()
 
 
+def can_submit_for_employee(
+    context: AuthorizationContext,
+    employee: EmployeeProfile,
+) -> bool:
+    if context.employee_id == employee.pk:
+        return True
+    if context.has_scope(
+        HR,
+        company_id=employee.company_id,
+        site_id=employee.site_id,
+        department_id=employee.department_id,
+        employee_id=employee.pk,
+    ):
+        return True
+    return bool(
+        context.has_role(HR)
+        and context.employee_id is not None
+        and employee.company_id == context.employee.company_id
+        and employee.manager_id == context.employee_id
+    )
+
+
+def can_access_request_attachments(
+    context: AuthorizationContext,
+    leave_request: LeaveRequest,
+) -> bool:
+    if context.employee_id == leave_request.employee_id:
+        return True
+    if context.has_scope(
+        HR,
+        company_id=leave_request.employee.company_id,
+        site_id=leave_request.employee.site_id,
+        department_id=leave_request.employee.department_id,
+        employee_id=leave_request.employee_id,
+    ):
+        return True
+    return bool(
+        context.employee_id == leave_request.manager_snapshot_id
+        and context.employee is not None
+        and context.employee_id != leave_request.employee_id
+        and context.employee.company_id == leave_request.employee.company_id
+        and not leave_request.leave_type.confidential
+    )
+
+
 def can_decide_leave_request(context: AuthorizationContext, leave_request: LeaveRequest) -> bool:
     if not can_view_leave_request(context, leave_request):
         return False
@@ -208,7 +258,7 @@ def can_decide_leave_request(context: AuthorizationContext, leave_request: Leave
 
 
 def scoped_employees(context: AuthorizationContext) -> QuerySet[EmployeeProfile]:
-    """Return general visible employees: self, direct reports, and assigned HR scope."""
+    """Return the union of self, same-company direct reports, and active HR assignments."""
     if not getattr(context.user, "is_active", False):
         return EmployeeProfile.objects.none()
     filters = Q()
@@ -253,10 +303,28 @@ def scoped_hr_employees(context: AuthorizationContext) -> QuerySet[EmployeeProfi
     )
 
 
+def scoped_exec_employees(context: AuthorizationContext) -> QuerySet[EmployeeProfile]:
+    filters = Q()
+    for assignment in context.assignments:
+        if assignment.role != "exec":
+            continue
+        if assignment.scope == RoleAssignment.SCOPE_COMPANY:
+            filters |= Q(company_id=assignment.company_id)
+        elif assignment.scope == RoleAssignment.SCOPE_SITE:
+            filters |= Q(company_id=assignment.company_id, site_id=assignment.site_id)
+        elif assignment.scope == RoleAssignment.SCOPE_DEPARTMENT:
+            filters |= Q(company_id=assignment.company_id, department_id=assignment.department_id)
+    return EmployeeProfile.objects.filter(filters, is_employee=True) if filters else (
+        EmployeeProfile.objects.none()
+    )
+
+
 def hr_operation_employees(context: AuthorizationContext) -> QuerySet[EmployeeProfile]:
-    """Return HR-assigned employees, or all employees for an explicitly authorized admin."""
+    """Return effective employee scope for HR operations, or global scope for admins."""
     if not getattr(context.user, "is_active", False):
         return EmployeeProfile.objects.none()
     if context.has_role(ADMIN):
         return EmployeeProfile.objects.filter(is_employee=True)
-    return scoped_hr_employees(context)
+    if context.has_role(HR):
+        return scoped_employees(context)
+    return EmployeeProfile.objects.none()

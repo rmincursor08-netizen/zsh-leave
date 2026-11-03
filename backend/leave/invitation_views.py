@@ -32,6 +32,16 @@ def _employee_for_operator(request, employee_id: int) -> EmployeeProfile:
         raise Http404 from exc
 
 
+def _reason(request):
+    data = request.data
+    if not isinstance(data, dict) or set(data) != {"reason"}:
+        return None
+    reason = data.get("reason")
+    if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 500:
+        return None
+    return reason.strip()
+
+
 @rate_limited("employee_invitation")
 @api_view(["POST"])
 def employee_invitation(request, employee_id: int):
@@ -54,7 +64,12 @@ def employee_invitation(request, employee_id: int):
             actor=request.user,
             email=request.data.get("email"),
         )
-    except InvitationError:
+    except InvitationError as exc:
+        if exc.code == "email_in_use":
+            return Response(
+                {"code": "duplicate_email", "message_fa": "این ایمیل قبلاً برای حساب دیگری ثبت شده است"},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(
             {"code": "invalid_invitation_request", "message_fa": "ارسال دعوت ممکن نیست"},
             status=status.HTTP_400_BAD_REQUEST,
@@ -129,7 +144,13 @@ def revoke_employee_invitation(request, employee_id: int):
             {"code": "permission_denied", "message_fa": "لغو دعوت مجاز نیست"},
             status=status.HTTP_403_FORBIDDEN,
         )
-    changed = revoke_invitation(employee_id=employee.pk, actor=request.user)
+    reason = _reason(request)
+    if reason is None:
+        return Response(
+            {"code": "invalid_reason", "message_fa": "دلیل لغو الزامی و حداکثر ۵۰۰ نویسه است"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    changed = revoke_invitation(employee_id=employee.pk, actor=request.user, reason=reason)
     return Response(
         {"status": "revoked" if changed else "unchanged"},
         status=status.HTTP_200_OK,
@@ -146,5 +167,11 @@ def suspend_employee_account(request, employee_id: int):
             {"code": "permission_denied", "message_fa": "تعلیق حساب مجاز نیست"},
             status=status.HTTP_403_FORBIDDEN,
         )
-    suspend_employee(employee_id=employee.pk, actor=request.user)
+    reason = _reason(request)
+    if reason is None:
+        return Response(
+            {"code": "invalid_reason", "message_fa": "دلیل تعلیق الزامی و حداکثر ۵۰۰ نویسه است"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    suspend_employee(employee_id=employee.pk, actor=request.user, reason=reason)
     return Response({"status": EmployeeProfile.ACCOUNT_SUSPENDED}, status=status.HTTP_200_OK)

@@ -2,6 +2,8 @@
 
 **تاریخ ارزیابی:** ۲ نوامبر ۲۰۲۶
 
+**یادداشت superseded:** این سند snapshot تاریخی P20 است. یافتهٔ آن دربارهٔ نامشخص بودن سیاست HR+Manager با تصمیم مصوب Option A (Union) و پیاده‌سازی F-04 superseded شده است؛ مرجع جاری [سیاست مجوزدهی](./authorization-policy.md) و [وضعیت راستی‌آزمایی امنیتی](./remediation/SECURITY-VERIFICATION.md) است. این تغییر سایر یافته‌های انتشار P20 را رفع یا تأیید نمی‌کند.
+
 **مخزن/نسخه:** `biwagidaa-droid/zsh-leave`، شاخهٔ `main`، HEAD برابر `c3cb7f360ba76a9a0935325c85a7af4e5fcc7a14` (`P20`)
 **دامنه:** بررسی Backend، Frontend، شواهد P20 و مستندات استقرار؛ بدون تغییر کد یا ایجاد/اجرای Migration دستی.
 
@@ -34,7 +36,7 @@
 
 Backend از نظر قابلیت‌های اصلی به بلوغ قابل‌توجهی رسیده است: چرخهٔ ورود/دعوت، scopeهای سازمانی، workflow مرخصی، دفترکل entitlement، audit، import/export، Bradford، job queue، اعلان و کنترل پیوست‌ها در کد وجود دارند و بخش مهمی از آن‌ها تست رگرسیون دارند. آزمون SQLite و تمام آزمون‌های Frontend در این ارزیابی اجرا و موفق شدند؛ P20 نیز شواهد آزمون کامل PostgreSQL 17.11 را ثبت کرده است.
 
-این شواهد **مجوز انتشار Production نیستند**. P20 رفتار واقعیِ خارج از تست را هم ثبت کرده است: در PostgreSQL تازه، جدول cache پیکربندی‌شده وجود ندارد و API با production settings خطای 500 می‌دهد؛ `TRUNCATE` می‌تواند رویدادهای Audit را پاک کند؛ و درخواست/خروجی کاربر دو‌نقشی HR+manager، رکوردهایی را از مسیر manager خارج از HR assignment می‌بیند. افزون بر آن، نقش DB عملیاتی، timer، volume/scanner، SMTP، مانیتورینگ و backup/restore عملیاتی در زیرساخت مقصد اثبات نشده‌اند.
+این شواهد **مجوز انتشار Production نیستند**. P20 رفتار واقعیِ خارج از تست را هم ثبت کرده است: در PostgreSQL تازه، جدول cache پیکربندی‌شده وجود ندارد و API با production settings خطای 500 می‌دهد؛ `TRUNCATE` می‌تواند رویدادهای Audit را پاک کند؛ و درخواست/خروجی کاربر دو‌نقشی HR+manager، رکوردهایی را از مسیر manager خارج از HR assignment می‌بیند. این مشاهده دربارهٔ ترکیب نقش‌ها، snapshot تاریخی است و با تصمیم F-04 (Union) superseded شده؛ تست API جدید روی SQLite در [گزارش آزمون](./test-report.md) ثبت شده است. افزون بر آن، نقش DB عملیاتی، timer، volume/scanner، SMTP، مانیتورینگ و backup/restore عملیاتی در زیرساخت مقصد اثبات نشده‌اند.
 
 ### ارزیابی حوزه‌های اجباری
 
@@ -42,7 +44,7 @@ Backend از نظر قابلیت‌های اصلی به بلوغ قابل‌تو
 |---|---|---|
 | Authentication و Session | **پیاده‌سازی‌شده؛ آزمون‌های واحد ثبت‌شده** | session، CSRF، Argon2، login throttling، دعوت/فعال‌سازی یک‌بارمصرف و تاریخ انقضای اشتغال پوشش دارند؛ ابطال نشست پیش‌دستانه وجود ندارد. ایمیل واقعی تأیید نشده است. |
 | Authorization و RBAC | **NOT VERIFIED به‌صورت جامع** | scopeهای HR، مدیر، employee و admin برای مسیرهای مشخص تست شده‌اند؛ همهٔ routeها و ترکیب نقش‌ها ممیزی کامل ندارند. |
-| Tenant isolation / HR scope | **ریسک باز** | تست‌های مرز شرکت/سایت/دپارتمان موفق‌اند؛ scope عمومی درخواست و export می‌تواند دسترسی HR+manager را union کند. |
+| Tenant isolation / HR scope | **F-04 IMPLEMENTED; SQLite API VERIFIED** | P20 ریسک باز را در snapshot خود گزارش کرد؛ تصمیم Union بعداً مصوب و با scope شرکت‌محدود در کد/تست API اعمال شد. PostgreSQL F-04 **NOT VERIFIED**؛ جزئیات در [سیاست مجوزدهی](./authorization-policy.md) و [راستی‌آزمایی امنیتی](./remediation/SECURITY-VERIFICATION.md). |
 | Employee lifecycle | **بخشی تأییدشده؛ چرخهٔ کامل NOT VERIFIED** | تاریخ پایان اشتغال، activation و رد session در درخواست بعدی تست شده؛ rehire، ابطال فوری نشست و سیاست درخواست‌های باز نیازمند تصمیم‌اند. |
 | Leave workflow | **بخش‌های حساس تست شده؛ همهٔ انتقال‌ها NOT VERIFIED** | ثبت HR idempotent و مستقیم approved، rollback و ledger تست شده؛ همهٔ ترکیب‌های correction/withdrawal/reopen/concurrency در این ارزیابی تأیید نشدند. |
 | Balance و Entitlement | **تست‌های ledger/import ثبت‌شده** | دفترکل، رزرو/تأیید، rollback و import تکراری در PostgreSQL P20 آزموده شده؛ سیاست سال مرخصی، rollover و دادهٔ واقعی نیازمند تأیید مالک کسب‌وکار است. |
@@ -53,7 +55,7 @@ Backend از نظر قابلیت‌های اصلی به بلوغ قابل‌تو
 | Bradford | **قابل‌اجرا اما provisional** | فرمول/دامنه/حریم خصوصی تست شده؛ سیاست تقویمی و انواع مشمول هنوز تصویب نشده، پس خروجی مبنای تصمیم نهایی HR نیست. |
 | Scheduler و Background Jobs | **کد و تست موجود؛ استقرار NOT VERIFIED** | DB-backed و نمونهٔ systemd موجود؛ اجرای دستی/آزمایشگاهی جای timer فعال و پایدار را نمی‌گیرد. |
 | Notification delivery | **منطق صف تست‌شده؛ provider NOT VERIFIED** | outbox و تکرار job تست شده؛ SMTP واقعی، bounce، push/SMS و رسید تحویل تأیید نشده‌اند. |
-| Attachment security | **کد/test موجود؛ زیرساخت NOT VERIFIED** | ACL، اعتبارسنجی، hash restore تست شده؛ storage پایدار و scanner در محیط واقعی اثبات نشده‌اند؛ scanner خالی یعنی فایل «unscanned». |
+| Attachment security | **کد/test fail-closed؛ Integration NOT VERIFIED** | فقط فایل `clean` از endpoint scopeشده دانلود می‌شود؛ Production بدون command اسکنر fail-fast است. provider واقعی، volume پایدار و integration staging/Production اثبات نشده‌اند. |
 | DB و Migration compatibility | **PostgreSQL test PASS در P20؛ Production NOT VERIFIED** | P20 اجرای ۲۰ migration و suite PostgreSQL 17.11 را ثبت کرده؛ upgrade داده‌دار، نسخهٔ DB مقصد و سازگاری rolling deploy اثبات نشده‌اند. |
 | Backup/Restore | **drill مصنوعی موفق؛ Production NOT VERIFIED** | restore دو container با دادهٔ synthetic در P20 ثبت شده؛ offsite، زمان بازیابی واقعی، تناوب و alert وجود ندارد/تأیید نشده است. |
 | HTTPS و Reverse Proxy | **تنظیمات/آزمون کد موجود؛ اتصال واقعی NOT VERIFIED** | HTTPS redirect، HSTS، cookie امن و trusted proxy در settings/test؛ TLS، شبکه و هدرهای proxy مقصد اجرا نشده‌اند. |
@@ -70,13 +72,13 @@ Backend از نظر قابلیت‌های اصلی به بلوغ قابل‌تو
 
 | شناسه | شدت | محل/حوزه | وضعیت و شاهد | اقدام لازم |
 |---|---|---|---|---|
-| R1 | **HIGH** | `backend/leave/authorization.py`، `workflow_views.py`، `export_views.py` | P20 یک probe PostgreSQL ثبت کرده که request listing شامل direct report خارج از HR assignment بوده و CSV مقدار `AUDIT-CANARY` را داشته است. دسترسی از نقش مستقل manager می‌آید؛ تعارض با قاعدهٔ no-union حل نشده، پس هنوز نمی‌توان آن را قطعی «مجاز» یا «نشت» دانست. | مالک داده/امنیت باید سیاست ترکیب نقش‌ها را امضا کند. سپس برای employee list، request list، detail، timeline، attachment و هر export تست نقش دوگانه اضافه/اجرا شود؛ اگر HR باید محدود بماند، queryهای HR از scope مستقل manager جدا شوند. |
+| SUPERSEDED BY F-04 | تاریخی: **HIGH** در snapshot P20 | `backend/leave/authorization.py`، `workflow_views.py`، `export_views.py` | P20 یک probe PostgreSQL ثبت کرده که request listing شامل direct report خارج از HR assignment بوده و CSV مقدار `AUDIT-CANARY` را داشته است. رفتار مشاهده‌شده واقعی بود، اما سیاست no-union فرضی و حل‌نشده بود؛ مالک سامانه بعداً Option A (Union) را صریحاً تأیید کرد. | تصمیم Union و ماتریس جاری در [سیاست مجوزدهی](./authorization-policy.md) ثبت شده؛ تست Session/CSRF و endpointها روی SQLite موفق است. PostgreSQL rerun **NOT VERIFIED**؛ این ریسک دیگر «تصمیم سیاستی باز» نیست. |
 | R2 | **HIGH** | `backend/leave/migrations/0014_append_only_history_guards.py`، نقش‌ها و grants PostgreSQL | trigger فقط UPDATE/DELETE ردیفی را می‌گیرد. P20 با SQL مجزا `TRUNCATE TABLE public.leave_auditevent` را اجرا و count=0 مشاهده کرد. این اثبات روی DB آزمایشی/privileged است؛ امکان آن برای app role مقصد بدون مشاهدهٔ grants نامعلوم است. | app role نباید owner جدول باشد و باید مجوز `TRUNCATE`، DDL و حذف را نداشته باشد. مجوز INSERT نیز باید محدود و provenance audit محافظت شود. با credential واقعی app role، آزمایش منفی TRUNCATE/UPDATE/DELETE و بررسی مالکیت تمام append-only tables انجام شود. |
 | R3 | **HIGH** | `backend/config/settings_prod.py`؛ provisioning استقرار | Cache به `DatabaseCache` و جدول `zsh_cache` اشاره می‌کند، ولی migration/deploy asset آن را ایجاد نمی‌کند. P20 در PostgreSQL تازه: جدول وجود نداشت، `/api/v1/health/` با settings تولید 500 شد؛ پس از `createcachetable zsh_cache` درخواست ۲۱ام 429 گرفت. | در release automation، پیش از ترافیک API، cache table را provision و با readiness/throttle smoke test تأیید کنید. provisioning باید idempotent و مستند باشد؛ رفتار چند worker و cache persistence نیز تست شود. |
 | R4 | **HIGH** | deployment مقصد، `backend/config/settings_prod.py`، `deploy/` | production DB role، topology وب، proxy/TLS، secret injection و network boundary واقعی موجود/تأییدشده نیستند. security check با dummy env صرفاً پیکربندی Django را بررسی می‌کند. | یک staging واقعی و جدا از production بسازید؛ DB با کمترین privilege، secret manager، WSGI/server، reverse proxy، TLS و firewall را راه‌اندازی و آزمون کنید. |
 | R5 | **HIGH** | `deploy/backup/`، [راهنمای backup/restore](./backup-restore-fa.md) | restore synthetic موفق است؛ backup زمان‌بندی‌شده، کپی offsite مستقل، retention/alert، RPO/RTO با حجم واقعی و restore Production **NOT VERIFIED** هستند. | backup رمز‌شده و offsite، alert تازگی/شکست و restore drill دوره‌ای روی staging واقعی؛ RPO/RTO قابل‌اندازه‌گیری را با مالک سرویس تصویب کنید. |
 | R6 | **HIGH** | `deploy/systemd/`، `backend/leave/job_services.py` | job service و timer نمونه وجود دارد؛ نصب/فعال‌بودن timer/worker در میزبان مقصد ثابت نشده. نبود اجرا می‌تواند اعلان/یادآوری، escalation یا jobهای زمان‌بندی‌شده را عقب بیندازد. | timer را در staging فعال کنید؛ اجرای due job، lease/retry، heartbeat، restart host، اجرای هم‌زمان دو worker و alert شکست/عقب‌ماندگی را آزمون کنید. سیاست‌های rollover/expiration خاموش را تا تأیید HR روشن نکنید. |
-| R7 | **HIGH** | `backend/leave/attachment_storage.py`، `attachment_security.py`، `backend/config/settings_prod.py` | کد private storage و تست ACL وجود دارد، اما volume پایدار/مجوز OS و scanner واقعی تأیید نشده؛ حالت scanner بدون تنظیم «unscanned» است. | volume خارج repository با backup همگام، owner/permission محدود، محدودیت ظرفیت، retention و scanner fail-closed طبق سیاست سازمان تنظیم و در staging با فایل بی‌خطر/آلودهٔ آزمایشی بررسی شود. |
+| R7 | **HIGH** | `backend/leave/attachment_storage.py`، `attachment_security.py`، `attachment_scanning.py`، `backend/config/settings_prod.py` | دانلود به `clean` محدود و config scanner در Production اجباری است؛ volume پایدار/مجوز OS و provider واقعی هنوز تأیید نشده‌اند. | volume خارج repository با backup همگام، owner/permission محدود، محدودیت ظرفیت، retention و scanner واقعی طبق adapter قراردادشده پیکربندی و در staging با فایل بی‌خطر و نمونهٔ تست آلودهٔ سازمانی بررسی شود. |
 | R8 | **HIGH** | `backend/config/settings_base.py`، `backend/config/settings_prod.py`، عملیات | P20 نبود log aggregation، alert، retention، backup freshness alert، scheduler alert و incident paging را ثبت می‌کند. | لاگ ساختاریافته با redaction، شناسهٔ correlation، مانیتور خطای API/DB، job lag، queue، backup، storage و certificate expiry را به سامانهٔ عملیاتی وصل کنید؛ مالک/آستانه/مسیر escalation تعیین شود. |
 | R9 | **MEDIUM** | `backend/leave/authorization.py`، `authentication_classes.py`، account lifecycle | session هشت‌ساعته است و اشتغال در request بعدی بررسی می‌شود؛ revoke پیش‌دستانه/session version وجود ندارد. رفتار پس از termination به فاصله تا درخواست بعدی وابسته است. | پیش از انتشار، risk acceptance برای session termination بگیرید؛ حداکثر زمان revoke را تعیین و logout/offboard/session موجود را در تست E2E تأیید کنید. |
 | R10 | **MEDIUM** | `backend/leave/employment_services.py`، `invitation_services.py` و policyهای HR | end-date و activation آزمون دارند؛ rehire با دوره‌های مجزا، سابقهٔ کامل lifecycle و تکلیف درخواست‌های pending هنگام offboarding تصمیم/تست کامل ندارند. | سیاست HR برای rehire، future end-date، غیرفعال‌سازی، درخواست‌های باز و نگهداری تاریخچه را تصویب و سناریوهای مرزی را تست کنید. |
@@ -106,7 +108,7 @@ Backend از نظر قابلیت‌های اصلی به بلوغ قابل‌تو
 
 - [ ] محیط، DNS، حساب‌ها، secretها، DB، storage و SMTP از Production جدا باشند؛ دادهٔ واقعی HR کپی نشود مگر با تصویب/ناشناس‌سازی رسمی.
 - [ ] نسخهٔ PostgreSQL مقصد را ثبت کنید؛ با role واقعی app و role مجزای backup وصل شوید؛ app مالک schema/tableهای Audit نباشد.
-- [ ] secrets را از secret manager وارد کنید: `ZSH_SECRET_KEY`، `ZSH_DB_*`، `ZSH_ALLOWED_HOSTS`، `ZSH_CSRF_TRUSTED_ORIGINS`، `ZSH_TRUSTED_PROXY_IPS`، `ZSH_ATTACHMENT_ROOT` و email/scanner settings.
+- [ ] secrets را از secret manager وارد کنید: `ZSH_SECRET_KEY`، `ZSH_DB_*`، `ZSH_ALLOWED_HOSTS`، `ZSH_CSRF_TRUSTED_ORIGINS`، `ZSH_TRUSTED_PROXY_IPS`، `ZSH_ATTACHMENT_ROOT`، `ZSH_ATTACHMENT_SCANNER_COMMAND` و email settings.
 - [ ] app فقط از شبکهٔ داخلی/Unix socket قابل‌دسترسی باشد؛ TLS، certificate chain، Host، HSTS، redirect و proxy trust با دامنه و peer واقعی آزموده شوند.
 - [ ] پیش از ترافیک، `createcachetable zsh_cache` را طبق runbook اجرا و health، throttling، رفتار چند process و restart را تأیید کنید.
 - [ ] `check --deploy --tag security` و `makemigrations --check --dry-run` را با config staging واقعی اجرا و خروجی/هش نسخه را نگه دارید؛ بررسی system check به‌تنهایی جای آزمون درخواست واقعی نیست.
@@ -115,7 +117,7 @@ Backend از نظر قابلیت‌های اصلی به بلوغ قابل‌تو
 
 - [ ] روی snapshot غیرحساس staging، upgrade را با همان مسیر deployment اجرا کنید؛ تعداد migration، lock/downtime، شمار رکوردها و سازگاری app قبلی/جدید ثبت شود.
 - [ ] از app role تلاش کنترل‌شده برای `TRUNCATE`، `DELETE`، `UPDATE` و INSERT مستقیم روی Audit/history کنید؛ انتظار deny و audit provenance روشن است. این آزمون را فقط روی DB آزمایشی انجام دهید.
-- [ ] نتیجهٔ R1 را با مالک HR/security تعیین کنید؛ برای HR+manager دو‌نقشی، employee list، request list/detail, events, attachments, balances, reports و CSV/XLSX را با رکوردهای synthetic داخل/خارج scope اجرا کنید.
+- [ ] اقدام R1 در P20 (تعیین سیاست چندنقشی و آزمون مسیرها) با تصمیم F-04 و تست‌های SQLite انجام شده است؛ برای اثبات PostgreSQL، تست‌های F-04 را با migration جدید و credentialهای test در PostgreSQL مستقل اجرا کنید (**NOT VERIFIED**).
 - [ ] ماتریس RBAC هر endpoint را برای employee، manager، HR در scope، HR خارج scope، executive، admin و superuser پر کنید؛ پاسخ 401/403/404 و عدم side effect را بررسی کنید.
 - [ ] company/site/department/manager تغییر، بستن Site، reassignment کارمند و تلاش ساخت چرخهٔ مدیر را بررسی کنید.
 - [ ] invitation، activate، انقضا، revoke، suspend، password، end-date گذشته/امروز/آینده، نشست موجود و rehire را اجرا کنید؛ دادهٔ token خام نباید در DB/log/audit باشد.
@@ -126,7 +128,7 @@ Backend از نظر قابلیت‌های اصلی به بلوغ قابل‌تو
 - [ ] ledger: balance پیش/پس، رزرو، approval، cancellation/withdrawal، adjustment، import معتبر/نامعتبر/تکراری و rollback را با مقادیر کوچک کنترل کنید؛ reconciliation قبل/بعد باید ثبت شود.
 - [ ] rollover/expiration را تا تصویب policy خاموش نگه دارید؛ در صورت تصویب، اجرای job را فقط روی data fixture و سپس روی مجموعهٔ آزمایشی مستقل بررسی کنید.
 - [ ] Bradford را با دادهٔ مرجع HR و سیاست تصویب‌شده تطبیق دهید؛ تا امضا، خروجی را provisional و غیرقابل‌استفاده برای تصمیم قطعی علامت بزنید.
-- [ ] پیوست را با انواع/اندازه‌های مجاز و نامعتبر، دانلود employee/HR مجاز و سایر نقش‌ها، scanner unavailable، حذف/retention و restore hash بررسی کنید.
+- [ ] پیوست را با انواع/اندازه‌های مجاز و نامعتبر، دانلود employee/HR مجاز و سایر نقش‌ها، `pending_scan/rejected/scanner_unavailable/scan_failed`، timeout، retry و symlink بررسی کنید. نمونهٔ scanner آلوده را فقط از fixture تست سازمانی بگیرید؛ هرگز از بدافزار واقعی استفاده نکنید.
 - [ ] اعلان‌های invitation، approved/rejected/reminder را از outbox تا SMTP آزمایشی دنبال کنید؛ خطای provider، retry، duplicate prevention و bounce را ثبت کنید.
 - [ ] Exportهای CSV/XLSX را برای scope، داده محرمانه، formula injection، row/date limit، encoding فارسی و عدم persistence فایل روی server بررسی کنید.
 
@@ -152,7 +154,7 @@ Backend از نظر قابلیت‌های اصلی به بلوغ قابل‌تو
 - [ ] مالک HR سیاست workflow، entitlement/year/rollover، Bradford، lifecycle، notification، retention و دسترسی دو‌نقشی را تصویب کرده باشد.
 - [ ] image/artifact immutable با commit، SBOM/dependency scan، build Frontend و test report مشخص ساخته شود؛ image ساخته‌نشده/دستی در Production deploy نشود.
 - [ ] PostgreSQL نسخه‌دار/پشتیبانی‌شده، TLS DB در صورت نیاز، backup user جدا، app role کم‌اختیار و grants Audit مستند باشند.
-- [ ] secretها در secret manager؛ کلیدها، SMTP، domain/CSRF، trusted proxy CIDR، attachment root و scanner با مقادیر واقعی و جدا از Staging تنظیم شوند.
+- [ ] secretها در secret manager؛ کلیدها، SMTP، domain/CSRF، trusted proxy CIDR، attachment root و scanner command با مقادیر واقعی و جدا از Staging تنظیم شوند.
 - [ ] reverse proxy، TLS، Host، HSTS، cookie secure، CSRF، network ACL و جلوگیری از دسترسی مستقیم به upstream از شبکهٔ عمومی در rehearsal تأیید شده باشد.
 - [ ] `zsh_cache` قبل از عبور ترافیک provision شود؛ deploy در صورت فقدان table متوقف شود.
 - [ ] backup encrypted/offsite با retention و alert فعال باشد؛ restore drill اخیر، زمان بازیابی و RPO/RTO پذیرفته‌شده موجود باشد.
@@ -248,6 +250,6 @@ Backend routeها و قراردادشان در [`backend/leave/urls.py`](../back
 
 # NOT READY FOR STAGING
 
-**دلایل فنی:** (۱) تعیین تکلیف scope دو‌نقشی HR+manager و اثبات grants append-only هنوز باز است؛ (۲) DB تازه بدون provisioning جدول `zsh_cache` در مسیر درخواست production به خطای 500 می‌رسد؛ (۳) محیط Staging واقعی با proxy/TLS، DB role، timer، attachment volume/scanner، SMTP، monitoring و backup/restore در شواهد موجود نیست. آزمون SQLite و Frontend موفق‌اند، اما به‌تنهایی هیچ‌یک از این موانع را نمی‌بندند. شواهد اصلی: [ممیزی نهایی Backend](./remediation/BACKEND-FINAL-AUDIT.md)، [امنیت](./remediation/SECURITY-VERIFICATION.md)، [PostgreSQL](./remediation/POSTGRESQL-EVIDENCE.md)، [عملیات Production](./remediation/PRODUCTION-OPERATIONS.md) و نتایج اجرای این ارزیابی در ابتدای سند.
+**دلایل فنی در snapshot P20:** (۱) اثبات grants append-only هنوز باز است؛ (۲) DB تازه بدون provisioning جدول `zsh_cache` در مسیر درخواست production به خطای 500 می‌رسید؛ (۳) محیط Staging واقعی با proxy/TLS، DB role، timer، attachment volume/scanner، SMTP، monitoring و backup/restore در شواهد موجود نبود. scope چندنقشی از این فهرست با تصمیم F-04 حل شده، اما تست PostgreSQL آن **NOT VERIFIED** است. آزمون SQLite و Frontend به‌تنهایی موانع عملیاتی را نمی‌بندند. شواهد جاری و تاریخی در [ممیزی نهایی Backend](./remediation/BACKEND-FINAL-AUDIT.md)، [امنیت](./remediation/SECURITY-VERIFICATION.md)، [PostgreSQL](./remediation/POSTGRESQL-EVIDENCE.md)، [عملیات Production](./remediation/PRODUCTION-OPERATIONS.md) و [سیاست مجوزدهی](./authorization-policy.md) آمده است.
 
 **Production نیز قطعاً آماده نیست.** برای بازبینی مجدد، R1–R8 باید بسته یا با تصمیم risk acceptance رسمی محدود شوند، چک‌لیست Staging اجرا و ثبت شود و سپس آزمون‌های PostgreSQL/Front-end و restore روی محیطی هم‌پیکربندی با مقصد با موفقیت تکرار شوند.

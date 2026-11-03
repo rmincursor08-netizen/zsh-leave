@@ -126,9 +126,12 @@ def _hr_user_ids(request) -> set[int]:
         company_id=request.employee.company_id,
         employee_id=request.employee_id,
     )
+    now = timezone.now()
     return set(RoleAssignment.objects.filter(
         role=RoleAssignment.ROLE_HR,
         is_active=True,
+    ).filter(
+        Q(expires_at__isnull=True) | Q(expires_at__gt=now),
     ).filter(filters).values_list("user_id", flat=True))
 
 

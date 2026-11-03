@@ -128,7 +128,14 @@ def _audit_scope(context, dataset: str) -> dict:
         return {"type": "global_admin"}
     if dataset in _REPORT_DATASETS or dataset == "bradford":
         if context.has_role("hr"):
-            return {"type": "hr", "assignments": _assignment_scope(context, "hr")}
+            scope = {
+                "type": "multi_role_union" if context.has_role("manager") else "hr",
+                "assignments": _assignment_scope(context, "hr"),
+                "employeeId": context.employee_id,
+            }
+            if context.has_role("manager"):
+                scope["managerEmployeeId"] = context.employee_id
+            return scope
         return {"type": "executive", "assignments": _assignment_scope(context, "exec")}
     if context.has_role("hr"):
         scope = {

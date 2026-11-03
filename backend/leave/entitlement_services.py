@@ -16,6 +16,7 @@ from .models import (
     EntitlementEvent,
     LeaveEntitlement,
     LeaveRequest,
+    LeaveType,
 )
 
 ZERO = Decimal("0.0")
@@ -332,6 +333,7 @@ def _create_entitlement(
     idempotency_key: str,
     reject_existing: bool,
 ) -> LeaveEntitlement:
+    leave_type = LeaveType.objects.select_for_update().get(pk=leave_type.pk)
     _validate_key(idempotency_key)
     if not (reason or "").strip():
         raise EntitlementLedgerError("دلیل ایجاد سهمیه الزامی است")

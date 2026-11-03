@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, DEMO_MODE } from "../api";
 import { asApiError, errorMessage } from "../api/errors";
-import type { LeaveRequest } from "../api/types";
+import type { Attachment, LeaveRequest } from "../api/types";
 import { JalaliDateField } from "../components/JalaliDateField";
 import {
   Badge, Banner, Button, Card, ConfirmDialog, DataTable, DetailList, Empty, ErrorState, Field, Input,
@@ -42,6 +42,16 @@ const REQUEST_COLUMNS: Column<LeaveRequest>[] = [
   { key: "status", label: "وضعیت", render: (r) => <StatusBadge status={r.status} /> },
   { key: "deadline", label: "مهلت تأیید", render: (r) => <DeadlineLabel info={deadlineInfo(r, todayIso())} /> },
 ];
+
+const ATTACHMENT_SCAN_LABEL: Record<NonNullable<Attachment["scanStatus"]>, string> = {
+  pending_scan: "در انتظار اسکن",
+  scanning: "در حال اسکن",
+  clean: "پاک‌سازی‌شده",
+  rejected: "ردشده",
+  scanner_unavailable: "اسکنر در دسترس نیست",
+  scan_failed: "اسکن ناموفق",
+  deleted: "حذف‌شده",
+};
 
 export function RequestsPage() {
   const [status, setStatus] = useState("");
@@ -451,11 +461,18 @@ export function RequestDetailPage() {
     if (!selectedFile) return;
     setFileBusy(true);
     try {
-      await api.addAttachment(rid, selectedFile);
+      const uploaded = await api.addAttachment(rid, selectedFile);
       await rf();
       setSelectedFile(null);
       if (fileInput.current) fileInput.current.value = "";
-      toast(DEMO_MODE ? "پیوست نمایشی افزوده شد" : "پیوست بارگذاری شد", "success");
+      toast(
+        DEMO_MODE
+          ? "پیوست نمایشی افزوده شد"
+          : uploaded.scanStatus === "clean"
+            ? "پیوست بارگذاری و اسکن شد"
+            : "پیوست ثبت شد؛ تا پایان اسکن قابل دانلود نیست",
+        "success",
+      );
     } catch (err) {
       toast(errorMessage(err), "danger");
     } finally {
@@ -596,7 +613,10 @@ export function RequestDetailPage() {
           <ul className="list">
             {(files ?? []).map((f) => (
               <li key={f.id}>
-                {f.downloadUrl ? <a href={f.downloadUrl}>{f.fileName}</a> : <span>{f.fileName}</span>}
+                {f.scanStatus === "clean" && f.downloadUrl
+                  ? <a href={f.downloadUrl}>{f.fileName}</a>
+                  : <span>{f.fileName}{f.scanStatus && f.scanStatus !== "clean"
+                    ? ` — ${ATTACHMENT_SCAN_LABEL[f.scanStatus]}` : ""}</span>}
                 <span className="hint">{f.sizeLabel}</span>
               </li>
             ))}

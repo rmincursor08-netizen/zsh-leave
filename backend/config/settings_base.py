@@ -1,4 +1,6 @@
+import json
 import os
+import shutil
 from ipaddress import ip_network
 from pathlib import Path
 
@@ -147,6 +149,23 @@ ZSH_ATTACHMENT_ROOT = Path(
     env("ZSH_ATTACHMENT_ROOT", str(Path.home() / ".local/share/zsh-leave/attachments")),
 ).expanduser().resolve()
 ZSH_ATTACHMENT_SCANNER = env("ZSH_ATTACHMENT_SCANNER", "").strip()
+try:
+    ZSH_ATTACHMENT_SCANNER_COMMAND = json.loads(env("ZSH_ATTACHMENT_SCANNER_COMMAND", "[]"))
+except json.JSONDecodeError as exc:
+    raise RuntimeError("ZSH_ATTACHMENT_SCANNER_COMMAND must be a JSON argument array.") from exc
+if (
+    not isinstance(ZSH_ATTACHMENT_SCANNER_COMMAND, list)
+    or any(not isinstance(argument, str) or not argument or "\0" in argument
+           for argument in ZSH_ATTACHMENT_SCANNER_COMMAND)
+):
+    raise RuntimeError("ZSH_ATTACHMENT_SCANNER_COMMAND must be a non-empty-string argument array.")
+ZSH_ATTACHMENT_SCANNER_TIMEOUT_SECONDS = int(
+    env("ZSH_ATTACHMENT_SCANNER_TIMEOUT_SECONDS", "30"),
+)
+if not 1 <= ZSH_ATTACHMENT_SCANNER_TIMEOUT_SECONDS <= 120:
+    raise RuntimeError("ZSH_ATTACHMENT_SCANNER_TIMEOUT_SECONDS must be between 1 and 120.")
+ZSH_ATTACHMENT_PRLIMIT = shutil.which("prlimit") or ""
+ZSH_ATTACHMENT_SCANNER_REQUIRED = False
 ZSH_ATTACHMENT_RETENTION_MONTHS = 2
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

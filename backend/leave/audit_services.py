@@ -33,6 +33,7 @@ SNAPSHOT_FIELDS = {
         "userId": "user_id", "role": "role", "scope": "scope", "companyId": "company_id",
         "siteId": "site_id", "departmentId": "department_id", "employeeId": "employee_id",
         "isActive": "is_active", "createdById": "created_by_id", "revokedById": "revoked_by_id",
+        "expiresAt": "expires_at",
     },
     "WorkPattern": {
         "name": "name", "companyId": "company_id", "siteId": "site_id",
@@ -85,7 +86,9 @@ SNAPSHOT_FIELDS = {
     "LeaveRequestAttachment": {
         "requestId": "request_id", "uploadedById": "uploaded_by_id",
         "contentType": "content_type", "fileSize": "file_size",
-        "scanStatus": "scan_status", "deletionStatus": "deletion_status",
+        "scanStatus": "scan_status", "scanAttempts": "scan_attempts",
+        "scanStartedAt": "scan_started_at", "scannedAt": "scanned_at",
+        "scanResultCode": "scan_result_code", "deletionStatus": "deletion_status",
         "legalHold": "legal_hold", "deletionRequestedAt": "deletion_requested_at",
         "deletedAt": "deleted_at", "deletedById": "deleted_by_id",
     },

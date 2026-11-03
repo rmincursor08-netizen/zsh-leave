@@ -1,5 +1,7 @@
 # راهنمای مدیر سامانه و عملیات
 
+> راهنمای جاری LeaveType در [راهنمای مدیریت انواع مرخصی](../leave-types-guide-fa.md) است. هر مستند قدیمی که نوشتن Global LeaveType را به HR نسبت دهد برای این قابلیت **Superseded** است.
+
 نقش `admin`، پیکربندی فنی و ساختار را مدیریت می‌کند اما در `scoped_leave_requests` به درخواست فردی دسترسی ندارد. `is_superuser` نیز admin می‌شود؛ دسترسی داده مرخصی با مجوز HR برابر نیست.
 
 ## پیکربندی و نصب محلی
@@ -32,8 +34,8 @@ DJANGO_SETTINGS_MODULE=config.settings_test python3 manage.py test
 ## مدیریت کاربر، نقش و سازمان
 
 - کاربران Django و EmployeeProfile به‌صورت جداگانه مدیریت می‌شوند. UI مدیریت employee هنگام ایجاد حساب، نام کاربری تولید و password unusable می‌گذارد؛ provisioning/login امن برای آن باید سازمانی تعریف شود. در `authorization_context`، `end_date` به‌تنهایی نقش employee را نمی‌بندد؛ خاتمه دسترسی باید با غیرفعال‌سازی حساب یا `is_employee=False` نیز همراه باشد.
-- نقش‌ها در `RoleAssignment` هستند: admin-global؛ HR شرکت/سایت/واحد/کارمند؛ exec شرکت/سایت/واحد. manager از رابطه مستقیم EmployeeProfile به دست می‌آید.
-- endpoint admin نقش‌ها `/api/v1/admin/role-assignments/` و جزئیات DELETE دارد؛ UI/متد frontend وجود ندارد. اعطای نقش به خود ممنوع، grant/revoke ممیزی و لغو آخرین admin برای actor غیر-superuser ممنوع است.
+- نقش‌ها در `RoleAssignment` هستند: admin-global؛ HR شرکت/سایت/واحد/کارمند؛ exec شرکت/سایت/واحد. manager از رابطه مستقیم EmployeeProfile به دست می‌آید. RoleAssignment می‌تواند `expiresAt` آینده و timezone-aware داشته باشد؛ غیرفعال/منقضی هیچ scope مؤثری ندارد.
+- endpoint admin نقش‌ها `/api/v1/admin/role-assignments/` و جزئیات DELETE دارد؛ UI/متد frontend وجود ندارد. اعطای نقش به خود ممنوع، grant/revoke/انقضا ممیزی و لغو آخرین admin مؤثر برای actor غیر-superuser ممنوع است. سیاست ترکیب چندنقشی در [سیاست مجوزدهی](../authorization-policy.md) آمده است.
 - company/department از UI سازمانی مدیریت‌پذیر است؛ سایت‌مدیریت UI جدا ندارد. رکوردها را فقط در سازمان/داده واقعی پس از اعتبارسنجی مرجع بسازید.
 
 ## امنیت، نشست و تنظیمات کسب‌وکار
@@ -53,7 +55,7 @@ DJANGO_SETTINGS_MODULE=config.settings_test python3 manage.py test
 - مهاجرت‌های `backend/leave/migrations/0001_initial.py` به بعد منبع schema هستند؛ migration `0019_attachment_security` metadata امنیت/retention را اضافه و فایل‌های تاریخی را با تطبیق SHA-256 از `MEDIA_ROOT` به `ZSH_ATTACHMENT_ROOT` کپی می‌کند.
 - پیش از migration، backup و نسخه DB را ثبت کنید؛ در pre-prod همان migrationها را روی PostgreSQL واقعی/نسخه سازگار آزمایش کنید.
 - SQLite برای آزمون سبک است؛ قیود `nulls_distinct` و trigger/locking PostgreSQL را کامل تضمین نمی‌کند.
-- پیوست‌های جدید در `ZSH_ATTACHMENT_ROOT` خصوصی (مطلق، خارج از repository، directory `0700` و file `0600`) ذخیره می‌شوند؛ production باید این متغیر را تنظیم و volume خصوصی پایدار فراهم کند. object-storage adapter یا malware scanner provider واقعی در repository موجود نیست؛ در نبود scanner وضعیت `unscanned` اعلام می‌شود.
+- پیوست‌ها در `ZSH_ATTACHMENT_ROOT` خصوصی (مطلق، خارج از repository، directory `0700` و file `0600`) ذخیره می‌شوند؛ Production علاوه بر volume خصوصی پایدار به `ZSH_ATTACHMENT_SCANNER_COMMAND` (JSON argv) نیاز دارد و بدون آن fail-fast می‌شود. فقط وضعیت `clean` قابل دانلود است؛ وضعیت‌های خطا fail-closed می‌مانند. provider واقعی malware scanner و integration محیط مقصد **NOT VERIFIED** هستند.
 - metadata DB و محتوای `ZSH_ATTACHMENT_ROOT` باید سازگار و با هم backup/restore شوند. سیاست ۲ ماه از بارگذاری، legal hold و purge تأییدشده در [سیاست امنیت پیوست](../attachment-security-fa.md) است؛ backupهای قدیمی جداگانه طبق سیاست سازمان منقضی می‌شوند.
 - اجرای ایمن، inventory، restore staging و مسیرهای بازیابی رخداد در [راهنمای پشتیبان‌گیری و بازیابی](../backup-restore-fa.md) آمده است. زیرساخت production در این مخزن موجود نیست؛ backup production **NOT VERIFIED** است.
 - رویدادهای in-app، provider ایمیل، صف، retry، مجوز recipient و وضعیت aggregate در [سیاست و عملیات اعلان‌ها](../notifications-fa.md) مستند است؛ push/SMS و receipt واقعی تحویل در کد فعلی وجود ندارد.

@@ -4,11 +4,13 @@
 
 این نتیجه برای checkout فعلی `main` در commit `9b82f59666398348664944cd04c72921e69594c9` ثبت شده است؛ worktree پیش از ممیزی تمیز بود. هیچ فایل Backend یا Frontend در این ممیزی تغییر نکرد؛ فقط اسناد remediation به‌روزرسانی شدند. بعضی snapshotهای قدیمی پایین‌تر حاوی ادعاهای متناقض‌اند و وضعیت جاری محسوب نمی‌شوند.
 
+**F-04 status update:** سطر Authorization/scope در جدول زیر، snapshot تاریخی P20 است و برای سیاست چندنقشی superseded شده است. Option A (Union) با تأیید مالک سامانه تصویب و پیاده‌سازی شده؛ مرجع جاری [سیاست مجوزدهی](../authorization-policy.md) و [راستی‌آزمایی امنیتی](./SECURITY-VERIFICATION.md) است. آزمون API جدید روی SQLite موفق؛ PostgreSQL F-04 **NOT VERIFIED**.
+
 آزمون کامل Backend روی SQLite در runner مجزای Docker: **exit 0، ۳۷۸ تست، ۱۴ skip مخصوص PostgreSQL**. روی PostgreSQL 17.11: **exit 0، ۳۷۸ تست، بدون skip**. آزمون‌های متمرکز امنیت/داده روی PostgreSQL: **exit 0، ۱۵۹ تست، بدون skip**. Django check، migration drift، compileall و production security check با ورودی ساختگی متنوع موفق شدند؛ migrate تازه همهٔ ۲۰ migration برنامه را اعمال کرد.
 
 | Gate | وضعیت فعلی |
 |---|---|
-| Authorization/scope | NOT VERIFIED: مسیرهای HR-only selector دارند، اما directory و درخواست/خروجی عمومی یک کاربر HR+manager رکورد self/direct-report خارج از HR assignment را از طریق نقش‌های جداگانه برمی‌گردانند؛ سیاست عدم union و آزمون مسیرهای عمومی حل نشده است. |
+| Authorization/scope | **F-04 IMPLEMENTED; SQLITE API VERIFIED.** Union نقش‌های فعال در scope شرکت، با حفظ capability و فیلترهای محرمانگی؛ PostgreSQL F-04 **NOT VERIFIED**. متن P20 در این سطر تاریخی است. |
 | Confidentiality | NOT VERIFIED طبق معیار سخت‌گیرانهٔ این audit: مسیرهای حساس دارای regression هستند، اما همهٔ مسیرهای API/export به‌صورت جداگانه با ماتریس scope کامل تأیید نشده‌اند. |
 | Employment lifecycle | PASS برای end-date شامل همان روز، manager منقضی، activation و رد session در درخواست بعدی؛ ابطال پیش‌دستانهٔ session وجود ندارد. |
 | Account activation | PASS برای token hash، single-use، انقضا، replay/concurrency و rate-limit در آزمون‌ها؛ provider ایمیل واقعی تأیید نشده است. |

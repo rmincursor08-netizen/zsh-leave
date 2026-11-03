@@ -67,13 +67,17 @@ docker exec "$PG_CONTAINER" psql -X -U postgres -d audittest -Atc \
 
 Observed: insert succeeded; `TRUNCATE TABLE` succeeded; remaining row count was `0`. A `TransactionTestCase` was used while probing; `TestCase` had produced a false positive because PostgreSQL rejected `TRUNCATE` with pending transaction trigger events. A proposed statement trigger was not retained: it made Django PostgreSQL test database flush fail because flush uses `TRUNCATE`.
 
-**Status: PARTIALLY FIXED / Gate 6 NOT VERIFIED.** Deployment must ensure the application role does not own append-only tables and lacks `TRUNCATE`/DDL privileges; no production role grants were available to verify. Direct INSERT permissions also require least-privilege/owner review because the row triggers do not authenticate event provenance.
+**Status at the time of this evidence:** Gate 6 was NOT VERIFIED because production role grants were unavailable. The repository now includes a repeatable role bootstrap, runtime grant synchronization, a separate-role release configuration, and an isolated PostgreSQL App Role probe in [the PostgreSQL role-security runbook](../postgresql-role-security-fa.md). These changes do not constitute evidence that production has applied the grants.
+
+Runtime must be able to INSERT valid AuditEvent rows, so a compromised application process/credential can fabricate actor attribution or choose an arbitrary timestamp via direct SQL. The row triggers do not authenticate event provenance. The ACLs protect existing rows from Runtime UPDATE/DELETE/TRUNCATE, not from DBA/superuser or application-originated false inserts.
 
 ## Rollback evidence
 
 `AuditCoverageTests.test_audit_failure_rolls_back_business_mutation` verifies an audit-write exception rolls back a Company mutation. `AppendOnlyIntegrityTests.test_rejected_mutation_rolls_back_without_poisoning_outer_transaction` verifies rejected SQL mutation does not poison an outer transaction. Entitlement/workflow/import tests verify ledger, request, audit and import rollback boundaries. These passed in both full suites.
 
 ## Independent Current-Checkout Replay
+
+The original evidence below predates the role-protection implementation and documents the prior state. In a separate disposable PostgreSQL 17 database, the current checkout successfully applied migration `0021_jobeffect_append_only`, synchronized the least-privilege grants as `zsh_schema_owner`, and passed `verify-runtime-role.py` using the actual `zsh_app` credentials. The probe covered all eight append-only tables, INSERT versus UPDATE/DELETE/TRUNCATE/DDL/trigger/ownership denial, role membership, and normal AuditEvent insertion. An upgrade from `0020` preserved an existing audit row. These are isolated test results only; the production role/ACL state remains **NOT VERIFIED**.
 
 On 2026-11-02, a fresh PostgreSQL 17.11 database applied all current migrations, including `leave.0020_notificationdelivery`; `migrate --check` and `makemigrations --check --dry-run` exited 0. `entity_id` was confirmed as `character varying(64)`. The full suite then passed with 378 tests and no skips. All databases were disposable and contained no production data.
 

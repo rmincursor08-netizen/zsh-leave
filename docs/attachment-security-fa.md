@@ -8,11 +8,35 @@ API فایل را به PDF، PNG و JPEG محدود می‌کند؛ حجم صف�
 
 نام روی دیسک تصادفی و مستقل از نام کاربر است. فایل در `ZSH_ATTACHMENT_ROOT` خارج از repository و `MEDIA_ROOT` ذخیره می‌شود؛ directoryها با مجوز `0700` و فایل با `0600` ساخته می‌شوند. URL عمومی storage وجود ندارد و دانلود فقط از endpoint مجازشده می‌گذرد. پاسخ، `Content-Disposition: attachment`، `X-Content-Type-Options: nosniff` و `Cache-Control: private, no-store` دارد. نام اصلی فقط برای نمایش به کاربر مجاز نگهداری می‌شود و در log یا audit snapshot ثبت نمی‌شود.
 
-پس از اعتبارسنجی، فایل در storage نوشته و سپس metadata و audit event در یک تراکنش DB ثبت می‌شوند. اگر ثبت DB/audit شکست بخورد، فایل تازه‌نوشته‌شده پاک می‌شود؛ اگر cleanup خود نیز شکست بخورد، خطا ثبت می‌شود و باید مورد orphan در عملیات بررسی شود. purge نیز دو مرحله‌ای است: وضعیت `pending` و audit ابتدا ثبت می‌شوند، سپس فایل حذف و وضعیت نهایی ثبت می‌شود. در شکست بین مراحل، download بسته می‌ماند و فرمان purge پس از بررسی قابل تکرار است.
+چرخهٔ Upload → Store → Scan → Download → Delete به‌ترتیب چنین است:
+
+1. پس از بررسی اندازه، نوع، parser و نام، نام تصادفی ساخته و فایل در storage خصوصی نوشته می‌شود؛ metadata با `pending_scan` و Audit ثبت می‌شود.
+2. اسکن در تراکنش دارای قفل ردیف به `scanning` می‌رود؛ هر تلاش و زمان شروع/پایان و نتیجهٔ محدود و غیرحساس در فیلدهای مدل و Audit ثبت می‌شود. اسکنر باید پاسخ معتبر بدهد تا وضعیت `clean` شود.
+3. فقط رکورد `clean` و `active` از endpoint دارای همان کنترل مالکیت/scope فعلی دانلود می‌شود. هر وضعیت دیگر یا فایل حذف‌شده 404 است.
+4. `rejected` در storage خصوصی قرنطینهٔ منطقی می‌شود و تحت همان retention دوماهه باقی می‌ماند؛ purge تأییدشدهٔ فعلی آن را نیز طبق سیاست حذف می‌کند. فایل پاک‌شده وضعیت اسکن `deleted` می‌گیرد.
+
+اگر ثبت DB/audit اولیه شکست بخورد، فایل تازه‌نوشته‌شده پاک می‌شود؛ اگر cleanup خود نیز شکست بخورد، خطای عمومی و بدون مسیر ثبت می‌شود تا orphan در عملیات بررسی شود. purge نیز دو مرحله‌ای است: وضعیت `pending` و Audit ابتدا ثبت می‌شوند، سپس فایل حذف و وضعیت نهایی ثبت می‌شود. در شکست بین مراحل، download بسته می‌ماند و فرمان purge پس از بررسی قابل تکرار است.
 
 ## اسکن بدافزار
 
-در تنظیم پیش‌فرض ارائه‌دهندهٔ اسکن وجود ندارد. API نتیجه را `scanStatus=unscanned` گزارش می‌کند؛ این وضعیت به معنی پاک بودن فایل نیست. اگر `ZSH_ATTACHMENT_SCANNER` تنظیم شود، باید dotted path یک تابع قابل import باشد که bytes فایل را دریافت و فقط `True` برای پاک، `False` برای آلوده، و در اختلال exception بدهد. فایل آلوده رد می‌شود؛ scanner غایب/مختل یا پاسخ نامعتبر، بارگذاری را با 503 متوقف می‌کند. اتصال به ClamAV یا سرویس سازمانی، timeout/quota و آزمون عملیاتی در این repository پیاده‌سازی نشده است؛ تا انتخاب و آزمون provider ادعای malware scanning نکنید.
+در Production، `ZSH_ATTACHMENT_SCANNER_COMMAND` الزامی است؛ settings در نبود آن، executable ناموجود/غیرقابل‌اجرا یا نبود `prlimit` fail-fast می‌شود. مقدار متغیر باید JSON array از executable مطلق و آرگومان‌های جدا باشد، نه رشتهٔ shell؛ نمونهٔ شکل پیکربندی:
+
+```ini
+ZSH_ATTACHMENT_SCANNER_COMMAND=["/usr/local/libexec/zsh-attachment-scan","--stdin"]
+ZSH_ATTACHMENT_SCANNER_TIMEOUT_SECONDS=30
+```
+
+فرمان از stdin بایت‌های فایل را می‌خواند، بدون دسترسی به نام فایل کاربر. فقط exit code صفر و stdout شامل دقیقاً یکی از پاسخ‌های UTF-8 معتبر `{"status":"clean"}` یا `{"status":"rejected"}` پذیرفته می‌شود. timeout، خروج غیرصفر، executable/اسکنر غایب، crash، پاسخ خراب/اضافی یا نتیجهٔ ناشناخته هرگز clean نیست؛ وضعیت به‌ترتیب `scanner_unavailable` یا `scan_failed` می‌شود. اجرا با `shell=False`، timeout دیواری، CPU برابر timeout، فایل خروجی حداکثر 64 KiB، حداکثر 64 file descriptor و غیرفعال‌بودن core dump محدود می‌شود. اسکنر/adapter سازمانی باید خود نیز در محیط محدودشدهٔ منابع اجرا شود.
+
+`ZSH_ATTACHMENT_SCANNER` با dotted path فقط برای توسعه و تست سازگاری نگه داشته شده و در Production جایگزین فرمان محدودشده نیست. نبود اسکنر در توسعه فایل را فقط با وضعیت `scanner_unavailable` ذخیره می‌کند؛ این فایل هرگز قابل دانلود نیست. پاسخ Upload برای وضعیت غیر clean، HTTP 202 و وضعیت اسکن را برمی‌گرداند. Uploadهای pending/failed/unavailable را می‌توان با فرمان زیر دوباره اسکن کرد؛ نتیجهٔ نهایی `clean` یا `rejected` با اجرای دوباره تغییر نمی‌کند:
+
+```sh
+cd backend
+DJANGO_SETTINGS_MODULE=config.settings_prod python manage.py scan_attachments --limit 100
+DJANGO_SETTINGS_MODULE=config.settings_prod python manage.py scan_attachments --attachment-id 123
+```
+
+فرمان retry را با همان EnvironmentFile production و کاربر مجاز سرویس اجرا کنید؛ خروجی فقط تعداد رکوردهاست. این repository فقط قرارداد adapter را پیاده‌سازی می‌کند؛ ClamAV/سرویس سازمانی واقعی، policy signature/update، جداسازی container/cgroup و integration با نمونه‌های آلودگی آزموده نشده‌اند و تا اجرای staging واقعی **NOT VERIFIED** هستند.
 
 ## نگهداری و حذف
 

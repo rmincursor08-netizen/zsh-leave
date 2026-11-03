@@ -349,14 +349,21 @@ export const demoApi: Api = {
   },
   async listTypes() {
     const u = current();
-    return db.types.filter((t) => has(u, "hr", "admin") || !t.confidential);
+    if (has(u, "admin")) return db.types;
+    if (has(u, "hr")) return db.types.filter((t) => t.enabled);
+    if (has(u, "employee", "manager")) return db.types.filter((t) => t.enabled && t.employeeRequestable);
+    fail(403, "مشاهده انواع مرخصی مجاز نیست", "permission_denied");
   },
   async saveType(t) {
     const u = current();
-    if (!has(u, "hr", "admin")) fail(404, "یافت نشد", "not_found");
+    if (!has(u, "admin")) fail(403, "مدیریت انواع مرخصی مجاز نیست", "permission_denied");
+    const reason = t.reason.trim();
+    const reasonLength = Array.from(reason).length;
+    if (!reasonLength || reasonLength > 500) fail(400, "دلیل تغییر باید بین ۱ تا ۵۰۰ نویسه باشد", "invalid_leave_type");
     if (t.confidential && t.employeeRequestable) fail(422, "نوع محرمانه نمی‌تواند توسط کارمند درخواست شود", "validation");
     const existing = db.types.find((x) => x.id === t.id || x.key === t.key);
-    if (existing) Object.assign(existing, t);
+    const { reason: _reason, ...change } = t;
+    if (existing) Object.assign(existing, change);
     else db.types.push({
       id: nextId(), key: t.key, labelFa: t.labelFa, color: t.color ?? "#0f4c5c",
       countsAgainstBalance: !!t.countsAgainstBalance, requiresApproval: t.requiresApproval !== false,
@@ -364,7 +371,7 @@ export const demoApi: Api = {
       employeeRequestable: t.employeeRequestable !== false, confidential: !!t.confidential,
       enabled: t.enabled !== false, sortOrder: t.sortOrder ?? 10,
     });
-    audit("leave_type_save", "LeaveType", t.key);
+    audit("leave_type_save", "LeaveType", t.key, reason);
     save();
     return db.types.find((x) => x.key === t.key)!;
   },
@@ -703,28 +710,37 @@ export const demoApi: Api = {
     return db.employees.filter((e) => !qq || e.displayName.includes(qq) || e.personnelCode.includes(qq));
   },
   async saveEmployee(e) {
-    const u = current();
-    if (!has(u, "hr", "admin")) fail(404, "یافت نشد", "not_found");
-    if (e.id) {
-      const row = db.employees.find((x) => x.id === e.id);
-      if (!row) fail(404, "یافت نشد", "not_found");
-      Object.assign(row, e);
-      save();
-      return row;
-    }
-    const company = db.companies.find((c) => c.id === e.companyId)!;
-    const row: Employee = {
-      id: nextId(), userId: nextId(), displayName: e.displayName, personnelCode: e.personnelCode,
-      companyId: e.companyId, companyName: company.name, departmentName: e.departmentName ?? "",
-      positionName: e.positionName ?? "", managerName: e.managerName ?? null,
-      startDate: e.startDate ?? todayIso(), endDate: null, isActive: true,
-    };
-    db.employees.push(row);
-    save();
-    return row;
+    current();
+    void e;
+    fail(501, "دعوت و فعال‌سازی واقعی در حالت Demo انجام نمی‌شود", "demo_onboarding_unavailable");
+  },
+  async inviteEmployee(id, email) {
+    current();
+    void id;
+    void email;
+    fail(501, "ارسال دعوت واقعی در حالت Demo انجام نمی‌شود", "demo_onboarding_unavailable");
+  },
+  async revokeEmployeeInvitation(id, reason) {
+    current();
+    void id;
+    void reason;
+    fail(501, "مدیریت دعوت واقعی در حالت Demo انجام نمی‌شود", "demo_onboarding_unavailable");
+  },
+  async suspendEmployee(id, reason) {
+    current();
+    void id;
+    void reason;
+    fail(501, "تعلیق حساب واقعی در حالت Demo انجام نمی‌شود", "demo_onboarding_unavailable");
+  },
+  async activateAccount(token, email, password) {
+    void token;
+    void email;
+    void password;
+    fail(501, "فعال‌سازی حساب واقعی در حالت Demo انجام نمی‌شود", "demo_onboarding_unavailable");
   },
   async companies() { current(); return db.companies; },
   async departments() { current(); return db.departments; },
+  async sites() { current(); return []; },
   async saveCompany(c) {
     if (!has(current(), "admin")) fail(404, "یافت نشد", "not_found");
     if (c.id) {

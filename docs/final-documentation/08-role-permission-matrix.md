@@ -1,5 +1,7 @@
 # ماتریس نقش‌ها، عملیات و دامنه مجوز
 
+> **SUPERSEDED:** این ماتریس snapshot قدیمی و غیرمرجع است. سیاست مصوب چندنقشی و ماتریس فعلی فقط در [Authorization and Multi-Role Data Scope Policy](../authorization-policy.md) و [API Contract](../api/api-contract.md) تعریف می‌شوند.
+
 ## ۱. منبع مجوز و نقش‌های کشف‌شده
 
 این سند از `leave/authorization.py`, `authorization_services.py`, `role_assignment_views.py`, viewهای واقعی و `zsh_core/permissions.py` استخراج شده است. نقش فرانت‌اند صرفاً برای نمایش route/navigation است.

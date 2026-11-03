@@ -2,7 +2,9 @@
 
 ## تکمیل ممیزی مستقل — ۲ نوامبر ۲۰۲۶
 
-ماتریس پایین‌تر محدود به فازهای اولیه است. Audit نهایی روی checkout `9b82f59666398348664944cd04c72921e69594c9`، HR scope، global LeaveType، IDOR، lifecycle، activation، exports، notification confidentiality و PostgreSQL row triggers را با suite کامل بررسی کرد. Employment authorization در `authorization_context` کنترل می‌شود. HR-only عملیات selector مستقل دارد، اما probe نشان داد request list/export برای کاربر دو‌نقشی HR+manager دسترسی manager را خارج از HR assignment نگه می‌دارد؛ Gate 1 تا تعیین policy و test آن مسیر **NOT VERIFIED** است. PostgreSQL `TRUNCATE` همچنان bypass تأییدشده است و Gate 6 **NOT VERIFIED** باقی می‌ماند؛ جزئیات در [SECURITY-VERIFICATION.md](./SECURITY-VERIFICATION.md) است.
+**یادداشت superseded:** این بخش یک snapshot تاریخی از checkout `9b82f59666398348664944cd04c72921e69594c9` است. برای F-04، مشاهدهٔ زیر دربارهٔ حل‌نشده بودن سیاست چندنقشی و Gate 1 superseded شده است؛ سیاست Union با تأیید مالک سامانه تصویب و پیاده‌سازی شده است. مرجع جاری [سیاست مجوزدهی](../authorization-policy.md) و وضعیت تست آن [SECURITY-VERIFICATION.md](./SECURITY-VERIFICATION.md) است. سایر یافته‌های تاریخی این گزارش را نباید به‌عنوان وضعیت جاری فرض کرد.
+
+ماتریس پایین‌تر محدود به فازهای اولیه است. Audit نهایی روی checkout `9b82f59666398348664944cd04c72921e69594c9`، HR scope، global LeaveType، IDOR، lifecycle، activation، exports، notification confidentiality و PostgreSQL row triggers را با suite کامل بررسی کرد. Employment authorization در `authorization_context` کنترل می‌شود. PostgreSQL `TRUNCATE` همچنان bypass تأییدشده است و Gate 6 **NOT VERIFIED** باقی می‌ماند؛ جزئیات تاریخی در [SECURITY-VERIFICATION.md](./SECURITY-VERIFICATION.md) است.
 
 ## اصل اجرای مجوز
 

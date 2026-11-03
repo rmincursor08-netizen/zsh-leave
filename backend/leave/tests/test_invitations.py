@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
 from django.db import close_old_connections, connection
+from django.contrib.sessions.models import Session
 from django.test import TransactionTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -143,6 +144,81 @@ class EmployeeInvitationTests(TestCase):
         self.assertFalse(created.user.has_usable_password())
         self.assertEqual(EmployeeInvitation.objects.filter(employee=created).count(), 1)
 
+    def test_employee_creation_without_email_keeps_account_unusable(self):
+        response = self.client.post(
+            "/api/v1/employees/",
+            {
+                "firstName": "No",
+                "lastName": "Email",
+                "personnelCode": "E-NO-EMAIL",
+                "companyId": self.company.pk,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        created = EmployeeProfile.objects.get(personnel_code="E-NO-EMAIL")
+        self.assertEqual(created.account_status, EmployeeProfile.ACCOUNT_CREATED)
+        self.assertFalse(created.user.is_active)
+        self.assertFalse(created.user.has_usable_password())
+        self.assertEqual(EmployeeInvitation.objects.filter(employee=created).count(), 0)
+
+    def test_employee_creation_rejects_duplicate_email_and_personnel_code(self):
+        duplicate_email = self.client.post(
+            "/api/v1/employees/",
+            {
+                "firstName": "Duplicate",
+                "lastName": "Email",
+                "personnelCode": "E-DUP-EMAIL",
+                "companyId": self.company.pk,
+                "email": self.user.email.upper(),
+            },
+            format="json",
+        )
+        duplicate_code = self.client.post(
+            "/api/v1/employees/",
+            {
+                "firstName": "Duplicate",
+                "lastName": "Code",
+                "personnelCode": self.employee.personnel_code,
+                "companyId": self.company.pk,
+                "email": "new.person@example.test",
+            },
+            format="json",
+        )
+
+        self.assertEqual(duplicate_email.status_code, 409)
+        self.assertEqual(duplicate_email.json()["code"], "duplicate_email")
+        self.assertEqual(duplicate_code.status_code, 409)
+        self.assertFalse(EmployeeProfile.objects.filter(personnel_code="E-DUP-EMAIL").exists())
+
+    def test_hr_cannot_create_employee_outside_assignment_scope(self):
+        scoped_assignment = RoleAssignment.objects.get(
+            user=self.hr_user, role=RoleAssignment.ROLE_HR,
+        )
+        scoped_assignment.scope = RoleAssignment.SCOPE_DEPARTMENT
+        scoped_assignment.department = self.department
+        scoped_assignment.save()
+        other_department = Department.objects.create(
+            company=self.company, code="OTHER", name="Other department",
+        )
+
+        response = self.client.post(
+            "/api/v1/employees/",
+            {
+                "firstName": "Out",
+                "lastName": "OfScope",
+                "personnelCode": "E-OUT-SCOPE",
+                "companyId": self.company.pk,
+                "departmentId": other_department.pk,
+                "email": "out.of.scope@example.test",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(EmployeeProfile.objects.filter(personnel_code="E-OUT-SCOPE").exists())
+
     def test_expired_invitation_is_rejected_and_marked_expired(self):
         token = self.invite_token()
         invitation = EmployeeInvitation.objects.get(employee=self.employee)
@@ -161,7 +237,9 @@ class EmployeeInvitationTests(TestCase):
     def test_revoked_invitation_is_rejected(self):
         token = self.invite_token()
         revoked = self.client.post(
-            f"/api/v1/employees/{self.employee.pk}/invitation/revoke", {}, format="json",
+            f"/api/v1/employees/{self.employee.pk}/invitation/revoke",
+            {"reason": "Invitation request withdrawn"},
+            format="json",
         )
         self.assertEqual(revoked.status_code, 200)
 
@@ -234,6 +312,19 @@ class EmployeeInvitationTests(TestCase):
         self.assertEqual(invitations[1].status, EmployeeInvitation.STATUS_SENT)
         self.assertEqual(self.activate(old_token).status_code, 400)
         self.assertTrue(AuditEvent.objects.filter(action="invitation.resent").exists())
+
+    def test_resend_rejects_email_already_assigned_to_another_user(self):
+        other_user, _ = self.make_employee(
+            "duplicate-email-target", "other@example.test", "E-INV-OTHER",
+        )
+        response = self.issue(email=other_user.email)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "duplicate_email")
+        self.assertEqual(
+            EmployeeInvitation.objects.filter(employee=self.employee).count(),
+            0,
+        )
 
     def test_invitation_rate_limit_is_enforced(self):
         cache.clear()
@@ -324,7 +415,9 @@ class EmployeeInvitationTests(TestCase):
     def test_suspended_employee_cannot_activate(self):
         token = self.invite_token()
         suspended = self.client.post(
-            f"/api/v1/employees/{self.employee.pk}/suspend", {}, format="json",
+            f"/api/v1/employees/{self.employee.pk}/suspend",
+            {"reason": "Account access review"},
+            format="json",
         )
         self.assertEqual(suspended.status_code, 200)
 
@@ -335,6 +428,42 @@ class EmployeeInvitationTests(TestCase):
         self.assertFalse(self.user.is_active)
         self.assertFalse(self.user.has_usable_password())
 
+    def test_suspend_invalidates_existing_session_and_audits_reason(self):
+        self.user.set_password(VALID_PASSWORD)
+        self.user.is_active = True
+        self.user.save(update_fields=["password", "is_active"])
+        self.employee.account_status = EmployeeProfile.ACCOUNT_ACTIVATED
+        self.employee.save(update_fields=["account_status"])
+
+        employee_client = APIClient(enforce_csrf_checks=True)
+        employee_client.get("/api/v1/auth/me")
+        csrf = employee_client.cookies["csrftoken"].value
+        login = employee_client.post(
+            "/api/v1/auth/login",
+            {"username": self.user.username, "password": VALID_PASSWORD},
+            format="json",
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        self.assertEqual(login.status_code, 200, login.content)
+        session_key = employee_client.cookies["sessionid"].value
+        self.assertTrue(Session.objects.filter(session_key=session_key).exists())
+
+        suspended = self.client.post(
+            f"/api/v1/employees/{self.employee.pk}/suspend",
+            {"reason": "Security investigation"},
+            format="json",
+        )
+
+        self.assertEqual(suspended.status_code, 200)
+        self.assertFalse(Session.objects.filter(session_key=session_key).exists())
+        self.assertEqual(employee_client.get("/api/v1/auth/me").status_code, 401)
+        self.assertEqual(
+            AuditEvent.objects.get(action="account.suspended").reason,
+            "Security investigation",
+        )
+        self.assertTrue(self.user.__class__.objects.filter(
+            pk=self.user.pk, is_active=False,
+        ).exists())
     def test_future_employment_activation_does_not_grant_login_access(self):
         token = self.invite_token()
         self.employee.start_date = timezone.localdate() + timedelta(days=30)

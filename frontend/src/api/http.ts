@@ -32,7 +32,11 @@ function isErrorBody(v: unknown): v is Partial<ApiErrorBody> {
 /** مسیرهایی که 401 آن‌ها «نشست منقضی‌شده» نیست و نباید رویداد خروج اجباری بفرستند. */
 const AUTH_PATHS = new Set(["/auth/login", "/auth/me"]);
 
-async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function req<T>(
+  path: string,
+  init: RequestInit = {},
+  acceptedStatuses: number[] = [],
+): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   headers.set("Accept", "application/json");
@@ -59,7 +63,7 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
     }
   }
 
-  if (!res.ok) {
+  if (!res.ok && !acceptedStatuses.includes(res.status)) {
     if (res.status === 401 && !AUTH_PATHS.has(path.split("?")[0])) {
       window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     }
@@ -80,11 +84,15 @@ export const httpApi: Api = {
   logout: () => req("/auth/logout", { method: "POST" }),
   me: () => req("/auth/me"),
   changePassword: (current, next) => req("/auth/password", { method: "POST", body: JSON.stringify({ current, next }) }),
+  activateAccount: (token, email, password) => req("/auth/activate", {
+    method: "POST",
+    body: JSON.stringify({ token, email, password }),
+  }),
   listTypes: () => req("/leave-types/"),
   saveType: (t) => {
     const { id, ...body } = t;
     return req(id ? `/leave-types/${id}/` : "/leave-types/", {
-      method: id ? "PATCH" : "POST", body: JSON.stringify(body),
+      method: id ? "PATCH" : "POST", body: JSON.stringify({ ...body, reason: t.reason.trim() }),
     });
   },
   listRequests: (f: RequestFilters) => {
@@ -136,14 +144,23 @@ export const httpApi: Api = {
   notifications: () => req("/notifications/"),
   readNotification: (id) => req(`/notifications/${id}/read`, { method: "POST" }),
   employees: (q) => req(`/employees/${q ? `?q=${encodeURIComponent(q)}` : ""}`),
-  saveEmployee: (e) => {
-    const { id, ...body } = e;
-    return req(id ? `/employees/${id}/` : "/employees/", {
-      method: id ? "PATCH" : "POST", body: JSON.stringify(body),
-    });
-  },
+  saveEmployee: (e) => req("/employees/", { method: "POST", body: JSON.stringify(e) }),
+  inviteEmployee: (id, email) => req(
+    `/employees/${id}/invitation/`,
+    { method: "POST", body: JSON.stringify({ email }) },
+    [503],
+  ),
+  revokeEmployeeInvitation: (id, reason) => req(
+    `/employees/${id}/invitation/revoke`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  ),
+  suspendEmployee: (id, reason) => req(
+    `/employees/${id}/suspend`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  ),
   companies: () => req("/companies/"),
   departments: () => req("/departments/"),
+  sites: () => req("/sites/"),
   saveCompany: (c) => {
     const { id, ...body } = c;
     return req(id ? `/companies/${id}/` : "/companies/", {

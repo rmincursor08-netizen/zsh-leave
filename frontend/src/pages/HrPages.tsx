@@ -4,7 +4,7 @@ import { asApiError, errorMessage } from "../api/errors";
 import type { Entitlement, ImportPreview, LeaveType } from "../api/types";
 import {
   Badge, Banner, Button, Card, Checkbox, DataTable, Empty, ErrorState, Field, Input, LoadingBlock,
-  PageHeader, SearchInput, Segmented, Select, Tabs, Textarea, type Column,
+  Modal, PageHeader, SearchInput, Segmented, Select, Tabs, Textarea, type Column,
 } from "../components/ui";
 import { DonutChart } from "../components/charts";
 import { camelFields, nonZeroNumber } from "../lib/forms";
@@ -293,60 +293,139 @@ export function ReportsPage() {
   );
 }
 
-const KEY_RE = /^[a-z][a-z0-9_]{1,39}$/;
+const KEY_RE = /^[a-z][a-z0-9_]{1,31}$/;
+const textLength = (value: string) => Array.from(value).length;
 
 export function LeaveTypesPage() {
   const toast = useToast();
   const formRef = useRef<HTMLFormElement>(null);
+  const submitLock = useRef(false);
+  const toggleLock = useRef(false);
+  const { user } = useAuth();
+  const canManage = hasAny(user?.roles ?? [], "admin");
   const { data, reload, error, loading } = useAsync(() => api.listTypes(), []);
   const [labelFa, setLabel] = useState("");
   const [key, setKey] = useState("");
   const [color, setColor] = useState("#0f4c5c");
   const [counts, setCounts] = useState(false);
+  const [requiresApproval, setRequiresApproval] = useState(true);
   const [needNote, setNeedNote] = useState(false);
   const [needRep, setNeedRep] = useState(false);
   const [confidential, setConfidential] = useState(false);
+  const [employeeRequestable, setEmployeeRequestable] = useState(true);
+  const [editing, setEditing] = useState<LeaveType | null>(null);
+  const [reason, setReason] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [mutationError, setMutationError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [toggling, setToggling] = useState<number | null>(null);
+  const [toggleTarget, setToggleTarget] = useState<LeaveType | null>(null);
+  const [toggleReason, setToggleReason] = useState("");
+  const [toggleError, setToggleError] = useState("");
+  const [toggleReasonError, setToggleReasonError] = useState("");
+  const [toggleBusy, setToggleBusy] = useState(false);
+
+  const resetForm = () => {
+    setKey("");
+    setLabel("");
+    setColor("#0f4c5c");
+    setCounts(false);
+    setRequiresApproval(true);
+    setNeedNote(false);
+    setNeedRep(false);
+    setConfidential(false);
+    setEmployeeRequestable(true);
+    setReason("");
+    setEditing(null);
+    setErrors({});
+    setMutationError("");
+  };
+
+  const edit = (type: LeaveType) => {
+    setEditing(type);
+    setKey(type.key);
+    setLabel(type.labelFa);
+    setColor(type.color);
+    setCounts(type.countsAgainstBalance);
+    setRequiresApproval(type.requiresApproval);
+    setNeedNote(type.requiresNote);
+    setNeedRep(type.requiresReplacement);
+    setConfidential(type.confidential);
+    setEmployeeRequestable(type.employeeRequestable);
+    setReason("");
+    setErrors({});
+    setMutationError("");
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (!canManage || submitLock.current || toggleLock.current) return;
     const found: Record<string, string> = {};
-    if (!KEY_RE.test(key.trim())) found.key = "کلید لاتین (حروف کوچک، عدد و _؛ شروع با حرف، حداقل ۲ نویسه)";
-    else if (data?.some((t) => t.key === key.trim())) found.key = "این کلید قبلاً استفاده شده است";
+    if (!KEY_RE.test(key.trim())) found.key = "کلید لاتین (حروف کوچک، عدد و _؛ شروع با حرف، حداقل ۲ و حداکثر ۳۲ نویسه)";
+    else if (data?.some((t) => t.key === key.trim() && t.id !== editing?.id)) found.key = "این کلید قبلاً استفاده شده است";
     if (!labelFa.trim()) found.labelFa = "عنوان فارسی را وارد کنید";
+    else if (textLength(labelFa.trim()) > 128) found.labelFa = "عنوان حداکثر ۱۲۸ نویسه است";
+    if (!reason.trim()) found.reason = "دلیل تغییر را وارد کنید";
+    else if (textLength(reason.trim()) > 500) found.reason = "دلیل تغییر حداکثر ۵۰۰ نویسه است";
     setErrors(found);
+    setMutationError("");
     if (Object.keys(found).length) { focusFirstInvalid(formRef.current); return; }
+    submitLock.current = true;
     setBusy(true);
     try {
       await api.saveType({
+        ...(editing ? { id: editing.id } : {}),
         key: key.trim(), labelFa: labelFa.trim(), color,
         countsAgainstBalance: counts, requiresNote: needNote, requiresReplacement: needRep,
-        confidential, employeeRequestable: !confidential, requiresApproval: true, enabled: true,
+        confidential, employeeRequestable, requiresApproval, reason: reason.trim(),
+        ...(editing ? {} : { enabled: true }),
       });
-      toast("ذخیره شد", "success");
-      setKey(""); setLabel(""); setCounts(false); setNeedNote(false); setNeedRep(false); setConfidential(false);
+      toast(editing ? "تغییرات ذخیره شد" : "نوع مرخصی ایجاد شد", "success");
+      resetForm();
       await reload();
     } catch (err) {
       const ae = asApiError(err);
       toast(ae.message, "danger");
       setErrors(camelFields(ae.fields));
+      setMutationError(ae.message);
     } finally {
+      submitLock.current = false;
       setBusy(false);
     }
   };
 
-  const toggle = async (t: LeaveType) => {
-    setToggling(t.id);
+  const toggle = async (e: FormEvent) => {
+    e.preventDefault();
+    const type = toggleTarget;
+    if (!canManage || !type || submitLock.current || toggleLock.current) return;
+    if (!toggleReason.trim()) {
+      setToggleReasonError("دلیل تغییر را وارد کنید");
+      return;
+    }
+    if (textLength(toggleReason.trim()) > 500) {
+      setToggleReasonError("دلیل تغییر حداکثر ۵۰۰ نویسه است");
+      return;
+    }
+    setToggleReasonError("");
+    setToggleError("");
+    toggleLock.current = true;
+    setToggleBusy(true);
     try {
-      await api.saveType({ id: t.id, key: t.key, labelFa: t.labelFa, enabled: !t.enabled });
+      await api.saveType({
+        id: type.id, key: type.key, labelFa: type.labelFa,
+        enabled: !type.enabled, reason: toggleReason.trim(),
+      });
+      setToggleTarget(null);
+      setToggleReason("");
       await reload();
+      toast(type.enabled ? "نوع مرخصی غیرفعال شد" : "نوع مرخصی فعال شد", "success");
     } catch (err) {
-      toast(errorMessage(err), "danger");
+      const ae = asApiError(err);
+      toast(ae.message, "danger");
+      setToggleError(ae.message);
+      setToggleReasonError(ae.fields.reason ?? "");
     } finally {
-      setToggling(null);
+      toggleLock.current = false;
+      setToggleBusy(false);
     }
   };
 
@@ -358,48 +437,91 @@ export function LeaveTypesPage() {
     { key: "employeeRequestable", label: "کارمند", render: (t) => yn(t.employeeRequestable) },
     { key: "confidential", label: "محرمانه", render: (t) => yn(t.confidential) },
     { key: "enabled", label: "فعال", render: (t) => <Badge tone={t.enabled ? "ok" : "muted"}>{yn(t.enabled)}</Badge> },
-    {
+  ];
+  if (canManage) columns.push({
       key: "actions", label: "عملیات",
       render: (t) => (
-        <Button variant="secondary" size="sm" loading={toggling === t.id} onClick={() => void toggle(t)}>
-          {t.enabled ? "غیرفعال‌سازی" : "فعال‌سازی"}
-        </Button>
+        <div className="toolbar">
+          <Button variant="secondary" size="sm" disabled={busy || toggleBusy} onClick={() => edit(t)}>ویرایش</Button>
+          <Button variant="secondary" size="sm" disabled={busy} onClick={() => {
+            setToggleTarget(t);
+            setToggleReason("");
+            setToggleReasonError("");
+            setToggleError("");
+          }}>
+            {t.enabled ? "غیرفعال‌سازی" : "فعال‌سازی"}
+          </Button>
+        </div>
       ),
-    },
-  ];
+    });
 
   return (
     <>
       <PageHeader title="انواع مرخصی" />
       {error && <ErrorState message={error} onRetry={() => void reload()} />}
-      <Card title="افزودن">
-        <form onSubmit={submit} ref={formRef} noValidate>
-          <div className="grid grid-3">
-            <Field label="کلید لاتین" required error={errors.key}>
-              <Input value={key} dir="ltr" className="ltr-input" autoCapitalize="none" spellCheck={false} onChange={(e) => setKey(e.target.value)} />
-            </Field>
-            <Field label="عنوان فارسی" required error={errors.labelFa}>
-              <Input value={labelFa} onChange={(e) => setLabel(e.target.value)} />
-            </Field>
-            <Field label="رنگ در تقویم">
-              <Input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
-            </Field>
-          </div>
-          <fieldset className="field-group">
-            <legend>ویژگی‌ها</legend>
-            <div className="check-row">
-              <Checkbox label="از سهمیه کسر شود" checked={counts} onChange={(e) => setCounts(e.target.checked)} />
-              <Checkbox label="توضیح الزامی" checked={needNote} onChange={(e) => setNeedNote(e.target.checked)} />
-              <Checkbox label="جانشین الزامی" checked={needRep} onChange={(e) => setNeedRep(e.target.checked)} />
-              <Checkbox label="محرمانه (فقط HR ثبت می‌کند)" checked={confidential} onChange={(e) => setConfidential(e.target.checked)} />
+      {canManage && (
+        <Card title={editing ? "ویرایش نوع مرخصی" : "افزودن نوع مرخصی"}>
+          <form onSubmit={submit} ref={formRef} noValidate>
+            {mutationError && <ErrorState message={mutationError} />}
+            <div className="grid grid-3">
+              <Field label="کلید لاتین" required error={errors.key}>
+                <Input value={key} maxLength={32} dir="ltr" className="ltr-input" autoCapitalize="none" spellCheck={false} onChange={(e) => setKey(e.target.value)} />
+              </Field>
+              <Field label="عنوان فارسی" required error={errors.labelFa}>
+                <Input value={labelFa} maxLength={256} onChange={(e) => setLabel(e.target.value)} />
+              </Field>
+              <Field label="رنگ در تقویم">
+                <Input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+              </Field>
             </div>
-          </fieldset>
-          <Button type="submit" loading={busy}>ذخیره</Button>
-        </form>
-      </Card>
+            <fieldset className="field-group">
+              <legend>ویژگی‌ها</legend>
+              <div className="check-row">
+                <Checkbox label="از سهمیه کسر شود" checked={counts} onChange={(e) => setCounts(e.target.checked)} />
+                <Checkbox label="تأیید مدیر لازم است" checked={requiresApproval} onChange={(e) => setRequiresApproval(e.target.checked)} />
+                <Checkbox label="توضیح الزامی" checked={needNote} onChange={(e) => setNeedNote(e.target.checked)} />
+                <Checkbox label="جانشین الزامی" checked={needRep} onChange={(e) => setNeedRep(e.target.checked)} />
+                <Checkbox label="کارمند می‌تواند درخواست کند" checked={employeeRequestable} disabled={confidential} onChange={(e) => setEmployeeRequestable(e.target.checked)} />
+                <Checkbox label="محرمانه (فقط HR ثبت می‌کند)" checked={confidential} onChange={(e) => {
+                  setConfidential(e.target.checked);
+                  if (e.target.checked) setEmployeeRequestable(false);
+                }} />
+              </div>
+            </fieldset>
+            <Field label="دلیل تغییر (الزامی)" required error={errors.reason} hint="حداکثر ۵۰۰ نویسه؛ دلیل ثبت‌شده در Audit نگهداری می‌شود.">
+              <Input value={reason} maxLength={1000} onChange={(e) => setReason(e.target.value)} />
+            </Field>
+            <div className="toolbar">
+              <Button type="submit" loading={busy} disabled={toggleBusy}>{editing ? "ذخیره تغییرات" : "ایجاد نوع مرخصی"}</Button>
+              {editing && <Button variant="secondary" disabled={busy || toggleBusy} onClick={resetForm}>انصراف از ویرایش</Button>}
+            </div>
+          </form>
+        </Card>
+      )}
       <div className="mt">
         {loading && !data ? <LoadingBlock /> : <DataTable columns={columns} rows={data ?? []} rowKey={(t) => t.id} caption="انواع مرخصی" />}
       </div>
+      {toggleTarget && (
+        <Modal
+          title={toggleTarget.enabled ? "غیرفعال‌سازی نوع مرخصی" : "فعال‌سازی نوع مرخصی"}
+          onClose={() => { if (!toggleBusy) setToggleTarget(null); }}
+        >
+          <form className="modal-body" onSubmit={(e) => void toggle(e)} noValidate>
+            <p>{toggleTarget.labelFa} ({toggleTarget.key})</p>
+            {toggleError && <ErrorState message={toggleError} />}
+            <Field label="دلیل تغییر (الزامی)" required error={toggleReasonError} hint="حداکثر ۵۰۰ نویسه؛ دلیل ثبت‌شده در Audit نگهداری می‌شود.">
+              <Input value={toggleReason} maxLength={1000} onChange={(e) => {
+                setToggleReason(e.target.value);
+                setToggleReasonError("");
+              }} />
+            </Field>
+            <div className="toolbar modal-actions">
+              <Button type="submit" loading={toggleBusy}>تأیید</Button>
+              <Button variant="secondary" disabled={toggleBusy} onClick={() => setToggleTarget(null)}>انصراف</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </>
   );
 }

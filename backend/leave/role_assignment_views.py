@@ -1,7 +1,10 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError
+from django.db.models import Q
 from django.http import Http404
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -33,14 +36,16 @@ def role_assignments(request):
         return _failure("permission_denied", "مدیریت نقش‌ها فقط برای مدیر سامانه مجاز است", 403)
 
     if request.method == "GET":
-        rows = RoleAssignment.objects.filter(is_active=True).select_related("user").order_by(
-            "user_id", "role", "pk",
-        )
+        now = timezone.now()
+        rows = RoleAssignment.objects.filter(is_active=True).filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=now),
+        ).select_related("user").order_by("user_id", "role", "pk")
         return Response([assignment_payload(row) for row in rows])
 
     data = request.data
     allowed = {
         "userId", "role", "scope", "companyId", "siteId", "departmentId", "employeeId",
+        "expiresAt",
     }
     if not isinstance(data, dict) or set(data) - allowed:
         return _failure("invalid_payload", "بدنه درخواست یا فیلدهای آن معتبر نیست", 400)
@@ -52,6 +57,13 @@ def role_assignments(request):
             key: _positive_id(data[key], key) if data.get(key) is not None else None
             for key in ("companyId", "siteId", "departmentId", "employeeId")
         }
+        expires_at = None
+        if data.get("expiresAt") is not None:
+            if not isinstance(data["expiresAt"], str):
+                raise ValueError("expiresAt باید زمان ISO-8601 باشد")
+            expires_at = parse_datetime(data["expiresAt"])
+            if expires_at is None or timezone.is_naive(expires_at):
+                raise ValueError("expiresAt باید زمان ISO-8601 همراه منطقه زمانی باشد")
         assignment = grant_role_assignment(
             actor=request.user,
             user_id=user_id,
@@ -61,6 +73,7 @@ def role_assignments(request):
             site_id=ids["siteId"],
             department_id=ids["departmentId"],
             employee_id=ids["employeeId"],
+            expires_at=expires_at,
         )
     except (TypeError, ValueError) as exc:
         return _failure("invalid_payload", str(exc), 400)

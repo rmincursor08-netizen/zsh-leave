@@ -1,5 +1,7 @@
 # API (v1) — طراحی اولیه
 
+> **Superseded:** این سند طرح اولیه است و قرارداد عملیاتی فعلی، به‌ویژه مجوزهای LeaveType، در [API Contract](./api/api-contract.md) تعریف می‌شود. از جدول Leave types این سند برای پیاده‌سازی فعلی استفاده نکنید.
+
 پایه: `/api/v1/`، JSON، نشست+CSRF (و توکن برای یکپارچه‌سازی بعدی)، صفحه‌بندی `?page&page_size` (حداکثر ۱۰۰)، مرتب‌سازی `?ordering=`، خطا: `{ "code", "message_fa", "fields": {} }`. مستند OpenAPI از drf-spectacular در `/api/v1/schema/`. مسیرهای Auth پیاده‌سازی شده‌اند؛ سایر مسیرهای این سند طراحی هستند مگر آنجا که در قرارداد API وضعیت اجرا مشخص شده باشد.
 
 | گروه | Endpoint | روش | نقش‌ها | نکات |
@@ -10,7 +12,7 @@
 | Employee invitations | `/employees/{id}/invitation/`, `/invitation/revoke`, `/suspend` | POST | HR دامنه‌دار، مدیر سامانه | ارسال/ارسال مجدد، لغو دعوت یا تعلیق؛ توکن قبلی باطل می‌شود؛ بدون Frontend |
 | Organization | `/companies/`, `/departments/`, `/positions/`, `/sites/`, `/sites/{id}/` | GET/POST/PATCH؛ حذف سایت فقط در نبود وابستگی | مدیر سامانه؛ HR شرکتی برای سایت‌های همان شرکت | شرکت والد مستقیم سایت است؛ مالکیت سایت تغییرناپذیر؛ بایگانی با `isActive=false`؛ حذف دارای وابسته ممنوع |
 | Contracts | `/employees/{id}/contract-periods/` | GET/POST | HR | عدم هم‌پوشانی بازه |
-| Leave types | `/leave-types/` | GET؛ POST/PATCH | همه (فیلترشده)؛ HR/سامانه | نوع محرمانه برای غیر HR حذف می‌شود |
+| Leave types | `/leave-types/` | GET؛ POST/PATCH | Superseded — see current contract | مجوز و فیلترهای فعلی در API Contract |
 | Requests | `/leave-requests/` GET/POST؛ `/{id}/` GET/PATCH؛ `/{id}/approve|reject|cancel|withdraw|amend` POST | | طبق ماتریس | پیاده‌سازی Phase D؛ همه نوشتن‌ها Idempotency-Key دارند؛ انتقال، اصلاح، رویداد و Audit اتمیک |
 | HR record | `/hr/absences/` POST | | HR دامنه‌دار | ایجاد مستقیم در وضعیت `APPROVED`؛ `Idempotency-Key` الزامی؛ رویداد ثبت و اثر دفترکل در همان تراکنش |
 | Comments | `/leave-requests/{id}/comments/` | GET/POST | طرفین مجاز | پیاده‌سازی‌شده؛ ممنوع برای نوع محرمانه غیر HR |

@@ -9,7 +9,10 @@ from zsh_core import settings_schema as S
 from zsh_core.policy import LeavePolicy
 from . import audit_services
 from .authorization import MANAGE_GLOBAL_LEAVE_TYPES, authorization_context, has_permission
-from .models import LeaveType, PublicHoliday, PublicHolidayHistory, SystemSetting
+from .models import (
+    LeaveEntitlement, LeaveRequest, LeaveType, PublicHoliday, PublicHolidayHistory,
+    SystemSetting,
+)
 
 LEAVE_TYPE_FIELDS = {
     "key": "key",
@@ -25,6 +28,15 @@ LEAVE_TYPE_FIELDS = {
     "sortOrder": "sort_order",
 }
 
+HISTORICAL_LEAVE_TYPE_FIELDS = {
+    "key", "label_fa", "counts_against_balance", "requires_approval", "requires_note",
+    "requires_replacement", "employee_requestable", "confidential",
+}
+
+
+class LeaveTypeConflict(Exception):
+    """A LeaveType change conflicts with its existing references or key."""
+
 
 @transaction.atomic
 def save_leave_type(*, actor, leave_type_id: int | None, data: dict,
@@ -37,6 +49,8 @@ def save_leave_type(*, actor, leave_type_id: int | None, data: dict,
         raise ValidationError("فیلدهای نوع مرخصی معتبر نیست")
     if not isinstance(reason, str) or not reason.strip():
         raise ValidationError({"reason": "دلیل تغییر الزامی است"})
+    if len(reason.strip()) > 500:
+        raise ValidationError({"reason": "دلیل تغییر حداکثر ۵۰۰ نویسه است"})
     if not isinstance(correlation_id, str) or len(correlation_id) > 128:
         raise ValidationError({"correlationId": "شناسه همبستگی معتبر نیست"})
 
@@ -46,14 +60,36 @@ def save_leave_type(*, actor, leave_type_id: int | None, data: dict,
         else LeaveType()
     )
     before = audit_services.snapshot(item) if item.pk is not None else None
+    old_values = {
+        model_key: getattr(item, model_key)
+        for model_key in HISTORICAL_LEAVE_TYPE_FIELDS | {"enabled"}
+    } if before is not None else {}
     for api_key, model_key in LEAVE_TYPE_FIELDS.items():
         if api_key in data:
             setattr(item, model_key, data[api_key])
+    if LeaveType.objects.filter(key=item.key).exclude(pk=item.pk).exists():
+        raise LeaveTypeConflict("کلید نوع مرخصی قبلاً استفاده شده است")
+    if before is not None and any(
+        old_values[field] != getattr(item, field)
+        for field in HISTORICAL_LEAVE_TYPE_FIELDS
+    ) and (
+        LeaveRequest.objects.filter(leave_type_id=item.pk).exists()
+        or LeaveEntitlement.objects.filter(leave_type_id=item.pk).exists()
+    ):
+        raise LeaveTypeConflict(
+            "نوع مرخصی دارای سابقه است؛ تغییر کلید یا ویژگی‌های معنایی آن مجاز نیست"
+        )
     item.full_clean()
     item.save()
+    action = "leave_type.create"
+    if before is not None:
+        if old_values.get("enabled") != item.enabled:
+            action = "leave_type.activate" if item.enabled else "leave_type.deactivate"
+        else:
+            action = "leave_type.update"
     audit_services.record_model_change(
         actor=actor,
-        action="leave_type.create" if before is None else "leave_type.update",
+        action=action,
         instance=item,
         origin="admin",
         before=before,

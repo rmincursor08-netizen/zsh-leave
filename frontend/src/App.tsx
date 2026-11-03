@@ -8,6 +8,7 @@ import { AuditPage, JobsPage, NotFoundPage, NotificationsPage, ProfilePage, Sett
 import { CalendarPage, CoveragePage, TimelinePage } from "./pages/CalendarPages";
 import { DashboardPage } from "./pages/DashboardPage";
 import { BradfordPage } from "./pages/BradfordPage";
+import { ActivateAccountPage } from "./pages/ActivateAccountPage";
 import { BalancesPage, EntitlementsPage, ImportPage, LeaveTypesPage, ReportsPage } from "./pages/HrPages";
 import { LoginPage } from "./pages/LoginPage";
 import { ContractsPage, EmployeesPage, HolidaysPage, OrganizationPage } from "./pages/OrgPages";
@@ -36,6 +37,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/activate-account" element={<ActivateAccountPage />} />
       <Route element={<Guard><Layout /></Guard>}>
         <Route index element={<DashboardPage />} />
         <Route path="notifications" element={<NotificationsPage />} />

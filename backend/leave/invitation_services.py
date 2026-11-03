@@ -9,8 +9,10 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.contrib.auth import password_validation
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.contrib.sessions.models import Session
 from django.db import transaction
 from django.utils import timezone
 
@@ -91,7 +93,7 @@ def account_access_allowed(user, *, on_date=None) -> bool:
     )
 
 
-def _audit(*, action: str, employee_id: int | None, actor=None, result="ok"):
+def _audit(*, action: str, employee_id: int | None, actor=None, result="ok", reason=""):
     profile = EmployeeProfile.objects.filter(pk=employee_id).first() if employee_id else None
     invitation = None
     if profile is not None and action.startswith("invitation."):
@@ -107,7 +109,7 @@ def _audit(*, action: str, employee_id: int | None, actor=None, result="ok"):
         entity_id=instance.pk if instance is not None else "",
         before=None,
         after=audit_services.snapshot(instance) if instance is not None else None,
-        reason="",
+        reason=reason,
         result=result,
     )
 
@@ -141,6 +143,10 @@ def invite_employee(*, employee_id: int, actor, email: str | None = None) -> Inv
         }:
             raise InvitationError("account_not_invitable")
         target_email = normalize_email(email if email is not None else employee.user.email)
+        if get_user_model().objects.filter(email__iexact=target_email).exclude(
+            pk=employee.user_id,
+        ).exists():
+            raise InvitationError("email_in_use")
         was_invited = EmployeeInvitation.objects.filter(employee=employee).exists()
         revoked = EmployeeInvitation.objects.select_for_update().filter(
             employee=employee, status__in=ACTIVE_INVITATION_STATUSES,
@@ -212,7 +218,7 @@ def invite_employee(*, employee_id: int, actor, email: str | None = None) -> Inv
         return InvitationResult("sent", activation_url)
 
 
-def revoke_invitation(*, employee_id: int, actor) -> bool:
+def revoke_invitation(*, employee_id: int, actor, reason: str) -> bool:
     with transaction.atomic():
         employee = EmployeeProfile.objects.select_for_update().get(pk=employee_id)
         changed = EmployeeInvitation.objects.select_for_update().filter(
@@ -221,11 +227,16 @@ def revoke_invitation(*, employee_id: int, actor) -> bool:
         if changed:
             employee.account_status = EmployeeProfile.INVITATION_REVOKED
             employee.save(update_fields=["account_status"])
-            _audit(action="invitation.revoked", employee_id=employee.pk, actor=actor)
+            _audit(
+                action="invitation.revoked",
+                employee_id=employee.pk,
+                actor=actor,
+                reason=reason,
+            )
         return bool(changed)
 
 
-def suspend_employee(*, employee_id: int, actor) -> None:
+def suspend_employee(*, employee_id: int, actor, reason: str) -> None:
     with transaction.atomic():
         employee = EmployeeProfile.objects.select_for_update().select_related("user").get(
             pk=employee_id,
@@ -239,7 +250,15 @@ def suspend_employee(*, employee_id: int, actor) -> None:
         employee.user.is_active = False
         employee.user.save(update_fields=["is_active"])
         employee.save(update_fields=["account_status"])
-        _audit(action="account.suspended", employee_id=employee.pk, actor=actor)
+        for session in Session.objects.filter(expire_date__gt=timezone.now()).iterator():
+            if session.get_decoded().get("_auth_user_id") == str(employee.user_id):
+                session.delete()
+        _audit(
+            action="account.suspended",
+            employee_id=employee.pk,
+            actor=actor,
+            reason=reason,
+        )
 
 
 def activate_invitation(*, raw_token, email, password) -> str | None:

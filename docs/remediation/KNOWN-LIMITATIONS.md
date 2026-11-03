@@ -2,7 +2,7 @@
 
 ## وضعیت مستقل فعلی — ۲ نوامبر ۲۰۲۶
 
-این بخش، وضعیت مستقل checkout `9b82f59666398348664944cd04c72921e69594c9` را از فهرست تاریخی پایین‌تر جدا می‌کند. PostgreSQL 17.11 full suite مستقل اجرا شد (۳۷۸ تست، صفر skip)؛ employment authorization، activation، notification delivery و synthetic backup/restore در کد/آزمون حاضرند. محدودیت‌های جاری: scope union بین نقش HR و manager در request list/export حل نشده؛ جدول `zsh_cache` در DB تازه provision نمی‌شود و production API تا provisioning خطای 500 می‌دهد؛ PostgreSQL `TRUNCATE` می‌تواند `AuditEvent` را پاک کند؛ production role grants، volume/scanner، systemd deployment، monitoring، SMTP واقعی، offsite backup و restore production موجود/آزموده نیستند؛ Bradford همچنان `provisional` است؛ push/SMS و provider bounce webhook نداریم. جزئیات و شواهد: [ممیزی نهایی](./BACKEND-FINAL-AUDIT.md)، [امنیت](./SECURITY-VERIFICATION.md)، [PostgreSQL](./POSTGRESQL-EVIDENCE.md)، [عملیات](./PRODUCTION-OPERATIONS.md).
+**این وضعیت مستقل مربوط به snapshot مورخ ۲ نوامبر ۲۰۲۶ است، نه وضعیت جاری کامل.** PostgreSQL 17.11 full suite آن snapshot مستقل اجرا شد (۳۷۸ تست، صفر skip). یافتهٔ «scope union بین HR و manager حل نشده» با تصمیم مصوب و پیاده‌سازی F-04 superseded شده است؛ مرجع جاری [سیاست مجوزدهی](../authorization-policy.md) است. دیگر محدودیت‌های ذکرشده نیز وضعیت همان snapshot را توصیف می‌کنند و باید با اسناد remediation جاری سنجیده شوند. شواهد: [ممیزی نهایی](./BACKEND-FINAL-AUDIT.md)، [امنیت](./SECURITY-VERIFICATION.md)، [PostgreSQL](./POSTGRESQL-EVIDENCE.md)، [عملیات](./PRODUCTION-OPERATIONS.md).
 
 این فهرست وضعیت را از کد/مستندات مشاهده‌شده جدا می‌کند؛ موارد «بررسی‌نشده» به معنی پیاده‌سازی سالم یا معیوب نیستند.
 

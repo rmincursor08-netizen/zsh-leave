@@ -1,6 +1,9 @@
 import datetime as dt
 import importlib
 import json
+import os
+import subprocess
+import sys
 import tempfile
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -9,6 +12,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.exceptions import SuspiciousFileOperation
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.files.storage import FileSystemStorage
@@ -19,7 +23,13 @@ from PIL import Image
 from rest_framework.test import APIClient
 
 from leave import audit_services
-from leave.attachment_security import InvalidAttachment, validate_attachment
+from leave.attachment_security import (
+    AttachmentScanFailed,
+    InvalidAttachment,
+    scan_attachment,
+    validate_attachment,
+)
+from leave.attachment_scanning import scan_stored_attachment
 from leave.attachment_services import subtract_calendar_months
 from leave.attachment_storage import PrivateAttachmentStorage
 from leave.models import (
@@ -86,6 +96,12 @@ class AttachmentSecurityTests(TestCase):
         self.override = override_settings(ZSH_ATTACHMENT_ROOT=self.temp_root.name)
         self.override.enable()
         self.addCleanup(self.override.disable)
+        self.scanner_override = override_settings(
+            ZSH_ATTACHMENT_SCANNER="leave.tests.test_attachment_security.scanner_accept",
+            ZSH_ATTACHMENT_SCANNER_COMMAND=[],
+        )
+        self.scanner_override.enable()
+        self.addCleanup(self.scanner_override.disable)
         self.addCleanup(self.temp_root.cleanup)
 
     def create_request(self, employee, *, manager=None):
@@ -112,12 +128,12 @@ class AttachmentSecurityTests(TestCase):
         self.assertEqual(response.status_code, 201, response.content)
         return LeaveRequestAttachment.objects.get(pk=response.json()["id"])
 
-    def test_allowed_pdf_is_stored_privately_and_reports_unscanned_state(self):
+    def test_allowed_pdf_is_stored_privately_only_after_a_clean_scan(self):
         content = valid_pdf()
         response = self.upload(attachment_upload(content=content))
 
         self.assertEqual(response.status_code, 201, response.content)
-        self.assertEqual(response.json()["scanStatus"], "unscanned")
+        self.assertEqual(response.json()["scanStatus"], "clean")
         attachment = LeaveRequestAttachment.objects.get(pk=response.json()["id"])
         self.assertTrue(attachment.file.name.startswith(
             f"leave-attachments/{self.request.pk}/",
@@ -130,6 +146,16 @@ class AttachmentSecurityTests(TestCase):
         ))
         with self.assertRaises(ValueError):
             attachment.file.url
+        self.assertTrue(AuditEvent.objects.filter(
+            entity="LeaveRequestAttachment",
+            entity_id=str(attachment.pk),
+            action="leave_request.attachment_scan_started",
+        ).exists())
+        self.assertTrue(AuditEvent.objects.filter(
+            entity="LeaveRequestAttachment",
+            entity_id=str(attachment.pk),
+            action="leave_request.attachment_scan_completed",
+        ).exists())
 
     def test_attachment_migration_copies_and_verifies_legacy_files_without_deleting_source(self):
         legacy_root = Path(self.temp_root.name) / "legacy"
@@ -240,9 +266,11 @@ class AttachmentSecurityTests(TestCase):
         )
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertEqual(response["Content-Type"], "application/octet-stream")
         self.assertIn("attachment;", response["Content-Disposition"])
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(response["X-Frame-Options"], "DENY")
+        self.assertEqual(response["Content-Security-Policy"], "sandbox; default-src 'none'")
         self.assertEqual(response["Cache-Control"], "private, no-store")
         self.assertEqual(response["Pragma"], "no-cache")
         self.assertEqual(b"".join(response.streaming_content), valid_pdf())
@@ -263,7 +291,27 @@ class AttachmentSecurityTests(TestCase):
         cross_company = self.client.get(url)
         self.assertEqual(cross_company.status_code, 404)
 
-    def test_manager_cannot_download_employee_attachment(self):
+    def test_only_clean_active_attachments_can_be_downloaded(self):
+        attachment = self.upload_successfully()
+        url = f"/api/v1/leave-requests/{self.request.pk}/attachments/{attachment.pk}/"
+        for status in (
+            LeaveRequestAttachment.SCAN_PENDING,
+            LeaveRequestAttachment.SCAN_SCANNING,
+            LeaveRequestAttachment.SCAN_REJECTED,
+            LeaveRequestAttachment.SCAN_UNAVAILABLE,
+            LeaveRequestAttachment.SCAN_FAILED,
+        ):
+            with self.subTest(scan_status=status):
+                LeaveRequestAttachment.objects.filter(pk=attachment.pk).update(
+                    scan_status=status,
+                )
+                self.assertEqual(self.client.get(url).status_code, 404)
+        LeaveRequestAttachment.objects.filter(pk=attachment.pk).update(
+            scan_status=LeaveRequestAttachment.SCAN_CLEAN,
+        )
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_manager_can_download_nonconfidential_direct_report_attachment(self):
         manager_user = get_user_model().objects.create_user(username="attachment-manager")
         manager = EmployeeProfile.objects.create(
             user=manager_user, company=self.company, personnel_code="ATT-A-M",
@@ -280,7 +328,7 @@ class AttachmentSecurityTests(TestCase):
             f"/api/v1/leave-requests/{self.request.pk}/attachments/{attachment.pk}/",
         )
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
 
     def test_missing_storage_object_returns_not_found_without_disclosing_path(self):
         attachment = self.upload_successfully()
@@ -311,17 +359,33 @@ class AttachmentSecurityTests(TestCase):
         self.assertEqual([path for path in stored_files if path.is_file()], [])
 
     def test_unavailable_scanner_fails_closed_and_clean_scanner_is_explicit(self):
-        with override_settings(ZSH_ATTACHMENT_SCANNER="missing.scanner.function"):
+        with override_settings(ZSH_ATTACHMENT_SCANNER="", ZSH_ATTACHMENT_SCANNER_COMMAND=[]):
             unavailable = self.upload()
-        self.assertEqual(unavailable.status_code, 503)
-        self.assertEqual(LeaveRequestAttachment.objects.count(), 0)
+        self.assertEqual(unavailable.status_code, 202)
+        unavailable_row = LeaveRequestAttachment.objects.get(pk=unavailable.json()["id"])
+        self.assertEqual(
+            unavailable_row.scan_status,
+            LeaveRequestAttachment.SCAN_UNAVAILABLE,
+        )
+        self.assertEqual(
+            self.client.get(unavailable.json()["downloadUrl"]).status_code,
+            404,
+        )
 
         with override_settings(
             ZSH_ATTACHMENT_SCANNER="leave.tests.test_attachment_security.scanner_reject",
         ):
             infected = self.upload()
-        self.assertEqual(infected.status_code, 400)
-        self.assertEqual(LeaveRequestAttachment.objects.count(), 0)
+        self.assertEqual(infected.status_code, 202)
+        infected_row = LeaveRequestAttachment.objects.get(pk=infected.json()["id"])
+        self.assertEqual(
+            infected_row.scan_status,
+            LeaveRequestAttachment.SCAN_REJECTED,
+        )
+        self.assertEqual(
+            self.client.get(infected.json()["downloadUrl"]).status_code,
+            404,
+        )
 
         with override_settings(
             ZSH_ATTACHMENT_SCANNER="leave.tests.test_attachment_security.scanner_accept",
@@ -329,6 +393,97 @@ class AttachmentSecurityTests(TestCase):
             accepted = self.upload()
         self.assertEqual(accepted.status_code, 201, accepted.content)
         self.assertEqual(accepted.json()["scanStatus"], "clean")
+
+    def test_scanner_command_timeout_crash_and_invalid_output_never_clean(self):
+        commands = [
+            [sys.executable, "-c", "import time; time.sleep(2)"],
+            [sys.executable, "-c", "raise SystemExit(2)"],
+            [sys.executable, "-c", "print('not-json')"],
+            [sys.executable, "-c", "print('{\"status\":\"maybe\"}')"],
+            [sys.executable, "-c",
+             "print('{\"status\":\"clean\",\"status\":\"rejected\"}')"],
+            [sys.executable, "-c", "print('x' * 70000)"],
+        ]
+        for command in commands:
+            with self.subTest(command=command[-1]), override_settings(
+                ZSH_ATTACHMENT_SCANNER="",
+                ZSH_ATTACHMENT_SCANNER_COMMAND=command,
+                ZSH_ATTACHMENT_SCANNER_TIMEOUT_SECONDS=1,
+            ):
+                with self.assertRaises(AttachmentScanFailed):
+                    scan_attachment(valid_pdf())
+
+        with override_settings(
+            ZSH_ATTACHMENT_SCANNER="",
+            ZSH_ATTACHMENT_SCANNER_COMMAND=[sys.executable, "-c",
+                                           "print('{\"status\":\"clean\"}')"],
+        ):
+            self.assertEqual(scan_attachment(valid_pdf()), "clean")
+        with override_settings(
+            ZSH_ATTACHMENT_SCANNER="",
+            ZSH_ATTACHMENT_SCANNER_COMMAND=[sys.executable, "-c",
+                                           "print('{\"status\":\"rejected\"}')"],
+        ):
+            self.assertEqual(scan_attachment(valid_pdf()), "rejected")
+
+    def test_scanner_command_failure_is_recorded_and_never_downloadable(self):
+        with override_settings(
+            ZSH_ATTACHMENT_SCANNER="",
+            ZSH_ATTACHMENT_SCANNER_COMMAND=[sys.executable, "-c", "raise SystemExit(2)"],
+        ):
+            response = self.upload()
+        self.assertEqual(response.status_code, 202)
+        attachment = LeaveRequestAttachment.objects.get(pk=response.json()["id"])
+        self.assertEqual(attachment.scan_status, LeaveRequestAttachment.SCAN_FAILED)
+        self.assertEqual(attachment.scan_result_code, "scanner_process_failed")
+        self.assertEqual(self.client.get(response.json()["downloadUrl"]).status_code, 404)
+
+    def test_production_settings_fail_fast_without_scanner_command(self):
+        env = {
+            "PATH": os.environ.get("PATH", os.defpath),
+            "ZSH_SECRET_KEY": "production-settings-test-secret-key-long-enough-123456789",
+            "ZSH_ALLOWED_HOSTS": "testserver",
+            "ZSH_DB_USER": "zsh_app",
+            "ZSH_DB_PASSWORD": "test-password",
+            "ZSH_ATTACHMENT_ROOT": "/tmp/zsh-attachment-production-settings-test",
+        }
+        settings_module = "import config.settings_prod"
+        missing = subprocess.run(
+            [sys.executable, "-c", settings_module],
+            cwd=Path(__file__).resolve().parents[2],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("ZSH_ATTACHMENT_SCANNER_COMMAND", missing.stderr)
+
+        env["ZSH_ATTACHMENT_SCANNER_COMMAND"] = json.dumps(["/usr/bin/true"])
+        configured = subprocess.run(
+            [sys.executable, "-c", settings_module],
+            cwd=Path(__file__).resolve().parents[2],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+
+    def test_retry_rescans_failures_idempotently_and_keeps_final_result(self):
+        with override_settings(ZSH_ATTACHMENT_SCANNER="", ZSH_ATTACHMENT_SCANNER_COMMAND=[]):
+            upload_response = self.upload()
+        attachment = LeaveRequestAttachment.objects.get(pk=upload_response.json()["id"])
+        self.assertEqual(attachment.scan_status, LeaveRequestAttachment.SCAN_UNAVAILABLE)
+        with override_settings(
+            ZSH_ATTACHMENT_SCANNER="leave.tests.test_attachment_security.scanner_accept",
+        ):
+            retried = scan_stored_attachment(attachment.pk)
+            self.assertEqual(retried.scan_status, LeaveRequestAttachment.SCAN_CLEAN)
+            attempts = retried.scan_attempts
+            repeated = scan_stored_attachment(attachment.pk)
+        self.assertEqual(repeated.scan_status, LeaveRequestAttachment.SCAN_CLEAN)
+        self.assertEqual(repeated.scan_attempts, attempts)
 
     def test_attachment_retention_requires_approval_and_audits_holds_and_deletion(self):
         actor = get_user_model().objects.create_superuser(username="attachment-operator")
@@ -381,6 +536,8 @@ class AttachmentSecurityTests(TestCase):
             )),
             {
                 "leave_request.attachment_added",
+                "leave_request.attachment_scan_started",
+                "leave_request.attachment_scan_completed",
                 "leave_request.attachment_legal_hold_set",
                 "leave_request.attachment_legal_hold_released",
                 "leave_request.attachment_deletion_started",
@@ -391,6 +548,44 @@ class AttachmentSecurityTests(TestCase):
             f"/api/v1/leave-requests/{self.request.pk}/attachments/{attachment.pk}/",
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_symlinked_storage_directory_cannot_serve_a_private_file(self):
+        attachment = self.upload_successfully()
+        storage = attachment.file.storage
+        storage.delete(attachment.file.name)
+        attachment_directory = Path(self.temp_root.name) / "leave-attachments" / str(
+            self.request.pk,
+        )
+        outside = Path(self.temp_root.name) / "outside"
+        outside.mkdir()
+        attachment_directory.rmdir()
+        attachment_directory.symlink_to(outside, target_is_directory=True)
+
+        response = self.client.get(
+            f"/api/v1/leave-requests/{self.request.pk}/attachments/{attachment.pk}/",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_symlinked_storage_directory_rejects_writes_before_they_escape(self):
+        attachment = self.upload_successfully()
+        storage = attachment.file.storage
+        storage.delete(attachment.file.name)
+        attachment_directory = Path(self.temp_root.name) / "leave-attachments" / str(
+            self.request.pk,
+        )
+        outside = Path(self.temp_root.name) / "outside"
+        outside.mkdir()
+        attachment_directory.rmdir()
+        attachment_directory.symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaises(SuspiciousFileOperation):
+            storage.save(
+                f"leave-attachments/{self.request.pk}/retry.pdf",
+                ContentFile(valid_pdf()),
+            )
+
+        self.assertEqual(list(outside.iterdir()), [])
 
 
 def scanner_accept(content: bytes) -> bool:

@@ -44,7 +44,34 @@ curl -sSI https://leave.example.test/api/v1/health/ -H 'Host: attacker.example'
 ## نصب
 این مخزن فرمان نصب وب/DB را ارائه نمی‌کند. پیش از تعریف deployment، مسئول عملیات باید image/runtime، WSGI server، proxy/TLS، روش secret injection، شبکهٔ خصوصی upstream، volume فایل‌ها، migration و rollback را انتخاب کند. `.env.example` یا دستورهای فرضی Compose در این مخزن مبنای اجرای production نیستند.
 
-پس از انتخاب runtime، پیکربندی امن email backend برای دعوت و اعلان‌های صف‌شده لازم است؛ متغیرها و وضعیت‌ها در [چرخه عمر حساب کارمند](./account-lifecycle-fa.md) و [سیاست اعلان‌ها](./notifications-fa.md) آمده‌اند. جدول cache مشترک باید با `DJANGO_SETTINGS_MODULE=config.settings_prod python manage.py createcachetable zsh_cache` ایجاد شود.
+پس از انتخاب runtime، پیکربندی امن email backend برای دعوت و اعلان‌های صف‌شده لازم است؛ متغیرها و وضعیت‌ها در [چرخه عمر حساب کارمند](./account-lifecycle-fa.md) و [سیاست اعلان‌ها](./notifications-fa.md) آمده‌اند.
+
+### مرحلهٔ release برای PostgreSQL و cache مشترک
+
+این مخزن Docker/Compose یا unit وب ندارد؛ unit زیر مسیر release نمونهٔ رسمی systemd است. آن را کنار unit سرویس برنامه نصب کنید. فایل environment باید همان متغیرهای production از جمله `ZSH_SECRET_KEY`، `ZSH_DB_*`، `ZSH_ALLOWED_HOSTS` و `ZSH_ATTACHMENT_ROOT` را داشته باشد و فقط برای root و گروه سرویس قابل‌خواندن باشد.
+
+کاربر اجرایی هر دو مرحلهٔ Migration و Provisioning، کاربر سیستم‌عامل `zsh-leave` است؛ این فرایند از همان فایل environment و virtualenv سرویس jobs استفاده می‌کند. فایل environment باید متغیرهای production شامل `ZSH_SECRET_KEY`، `ZSH_DB_*`، `ZSH_ALLOWED_HOSTS`، `ZSH_ATTACHMENT_ROOT` و فرمان اسکنر `ZSH_ATTACHMENT_SCANNER_COMMAND` را داشته باشد. Web/Jobs نیز باید همان تنظیم Scanner را داشته باشند؛ نمونهٔ فرمت و قرارداد stdout در [Runbook پیوست‌ها](./attachment-security-fa.md) است. در هر release، قبل از شروع یا فعال‌کردن Web Workerها اجرا کنید:
+
+```sh
+sudo install -o root -g root -m 0644 deploy/systemd/zsh-leave-release.service /etc/systemd/system/zsh-leave-release.service
+sudo systemctl daemon-reload
+sudo systemctl start zsh-leave-release.service
+sudo systemctl --no-pager --full status zsh-leave-release.service
+```
+
+unit به‌ترتیب `migrate --noinput`، `provision_cache_table` و همگام‌سازی Grantها را با `config.settings_prod` اجرا می‌کند. اگر اتصال DB، ساخت جدول یا تنظیم ACL شکست بخورد، unit ناموفق می‌شود؛ Web Workerها را تا موفقیت آن شروع نکنید. فرمان Provisioning مستقل و idempotent است و PostgreSQL advisory lock می‌گیرد؛ آن را فقط به‌عنوان مرحلهٔ release یک‌باره اجرا کنید، نه از entrypoint هر Web Worker. هنگام استفاده از release runner دیگری، همان ترتیب را با همان کاربر سیستم‌عامل سرویس و همان محیط production اجرا کنید:
+
+```sh
+python manage.py migrate --noinput --settings=config.settings_prod
+python manage.py provision_cache_table --settings=config.settings_prod
+python manage.py sync_runtime_db_grants --settings=config.settings_prod
+```
+
+### نقش‌های PostgreSQL و append-only
+
+پیش از migration، نقش‌ها و مالکیت را مطابق [Runbook نقش‌ها و تاریخچهٔ PostgreSQL](./postgresql-role-security-fa.md) با DBA تنظیم کنید. release unit از فایل جداگانهٔ `/etc/zsh-leave/zsh-leave-migrate.env` استفاده می‌کند: `ZSH_DB_USER=zsh_migrator`، رمز migration از secret manager، و `PGOPTIONS="-c role=zsh_schema_owner"`. این عضویت فقط اجازهٔ `SET ROLE` می‌دهد، نه ارث‌بری؛ نقش `zsh_app` در فایل محیطی Web/Jobs باید جداگانه تنظیم شود و هیچ عضویتی در نقش مالک نداشته باشد. پس از migration، unit جدول cache را provision و با `sync_runtime_db_grants` مجوزهای runtime/backup را همگام می‌کند؛ هر سه مرحله باید موفق باشند، وگرنه انتشار را متوقف کنید.
+
+پس از بالا آمدن وب، `GET /api/v1/ready/` باید `200` و checkهای `database`، `cache`، پیکربندی Scanner و (در production) `scheduler` را موفق گزارش کند؛ در غیر این صورت `503` می‌دهد. این readiness وجود/قابل‌اجرابودن executable را بررسی می‌کند، نه صحت اتصال یا امضای موتور ضدبدافزار؛ آزمون provider واقعی را در staging انجام دهید. برای عیب‌یابی، لاگ unit را با `sudo journalctl -u zsh-leave-release.service --no-pager` ببینید، اتصال و نقش/مالکیت release را بررسی کنید و در صورت شکست provisioning، unit را پس از رفع خطا دوباره اجرا کنید. readiness cache از کلید تصادفی کوتاه‌عمر برای آزمون set/get/delete استفاده می‌کند؛ کلید عملیات را لمس نمی‌کند.
 
 برای اجرای کارهای زمان‌بندی‌شده، unit و timer systemd و شرط‌های readiness در [راهنمای عملیات پس‌زمینه](./background-jobs-fa.md) را دقیقاً نصب و فعال کنید. بدون این پیکربندی، Jobs API زمان‌بند را پیکربندی‌نشده اعلام می‌کند و readiness production موفق نمی‌شود.
 
